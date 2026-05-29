@@ -41,6 +41,21 @@ Summer2026/
 Code is tracked in git and pushed to GitHub. Data and model files are **not**
 committed (they are large and/or licensed) — they live on Great Lakes only.
 
+### Data location on Great Lakes (Turbo, lab-shared)
+
+```
+/nfs/turbo/umms-dinov/Data/brain_dataset/
+├── ASNR-MICCAI-BraTS2023-GLI-Challenge-TrainingData/   # BraTS 2023 patients
+└── ICBM_Lobular_Prob/                                  # ICBM452 atlas (.hdr/.img)
+```
+
+The repo lives in `~/Summer2026` (home). We symlink the data in rather than
+copying it (see "Cloning on Great Lakes" below):
+- `data/raw/brats`  →  the BraTS training folder above
+- `data/raw/icbm`   →  the ICBM_Lobular_Prob folder above
+
+GitHub remote: https://github.com/ALIUD1/Socr_2026.git
+
 ## Environment setup (on Great Lakes)
 
 ```bash
@@ -62,6 +77,21 @@ pip install torch --index-url https://download.pytorch.org/whl/cu121
 4. *(next)* preprocessing: normalize, crop, save aligned FLAIR/mask/atlas.
 5. *(next)* extract 2D slices, build a patient-level train/val/test split.
 6. *(next)* train the U-Net baseline, then the diffusion model.
+
+## Cloning on Great Lakes
+
+```bash
+cd ~
+git clone https://github.com/ALIUD1/Socr_2026.git Summer2026
+cd Summer2026
+
+# point the repo's data folders at the real data on Turbo (symlinks, no copy)
+rm data/raw/brats/.gitkeep && rmdir data/raw/brats
+ln -s /nfs/turbo/umms-dinov/Data/brain_dataset/ASNR-MICCAI-BraTS2023-GLI-Challenge-TrainingData data/raw/brats
+
+rm data/raw/icbm/.gitkeep && rmdir data/raw/icbm
+ln -s /nfs/turbo/umms-dinov/Data/brain_dataset/ICBM_Lobular_Prob data/raw/icbm
+```
 
 ## Running on Great Lakes (SLURM crash course)
 
