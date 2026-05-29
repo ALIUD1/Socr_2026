@@ -10,7 +10,8 @@
       "Bash(touch data/raw/brats/.gitkeep data/raw/icbm/.gitkeep data/processed/.gitkeep src/.gitkeep configs/.gitkeep models/.gitkeep outputs/.gitkeep)",
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(git -c user.name=\"setup\" -c user.email=\"setup@local\" commit -q -m \"Scaffold synthetic brain MRI project\")"
+      "Bash(git -c user.name=\"setup\" -c user.email=\"setup@local\" commit -q -m \"Scaffold synthetic brain MRI project\")",
+      "Bash(git -c user.name=\"setup\" -c user.email=\"setup@local\" commit -q -m \"Track full folder structure; ignore data by file type\")"
     ]
   }
 }
