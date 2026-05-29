@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"C:/Users/alexl/code/Research/socr/Summer2026\" 2>/dev/null; echo \"---\"; ls -la \"C:/Users/alexl/code/Research/socr\" 2>/dev/null)",
+      "Bash(unzip -l \"C:/Users/alexl/code/Research/socr/ICBM_Probabilistic_Atlases_Lobular.zip\")",
+      "Bash(unzip -o icbm452_atlas_probability_frontal.zip)",
+      "Bash(python -c \"import nibabel; print\\('nibabel', nibabel.__version__\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(mkdir -p data/raw/brats data/raw/icbm data/processed scripts src configs models outputs)",
+      "Bash(touch data/raw/brats/.gitkeep data/raw/icbm/.gitkeep data/processed/.gitkeep src/.gitkeep configs/.gitkeep models/.gitkeep outputs/.gitkeep)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git -c user.name=\"setup\" -c user.email=\"setup@local\" commit -q -m \"Scaffold synthetic brain MRI project\")"
+    ]
+  }
+}

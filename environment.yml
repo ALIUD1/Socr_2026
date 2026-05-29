@@ -1,0 +1,24 @@
+# Conda environment for the synthetic brain MRI project.
+# Create it on Great Lakes with:
+#     module load python      # or load Miniconda, depending on the cluster
+#     conda env create -f environment.yml
+#     conda activate brainmri
+#
+# NOTE: PyTorch is intentionally NOT pinned here. On an HPC cluster you install
+# the torch build that matches the cluster's CUDA version (see README.md), so we
+# add it in a separate step rather than letting conda guess.
+name: brainmri
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - scipy
+  - nibabel          # read/write NIfTI (.nii.gz) and Analyze (.hdr/.img) volumes
+  - matplotlib       # save overlay images (we run headless, no GUI)
+  - scikit-image     # SSIM / PSNR image-quality metrics
+  - tqdm             # progress bars during long loops
+  - pip
+  - pip:
+      - monai        # medical-imaging deep-learning toolkit (transforms, losses, nets)
+      - antspyx      # registration (ANTs) — used once to align the atlas to BraTS space

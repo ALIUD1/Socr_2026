@@ -1,0 +1,28 @@
+# --- Data & model artifacts (these live on Great Lakes, never commit them) ---
+# Medical image files are huge and/or licensed; keep them out of git.
+*.nii
+*.nii.gz
+*.img
+*.hdr
+*.mnc
+data/raw/*
+data/processed/*
+models/*
+outputs/*
+_inspect/
+
+# ...but keep the empty folders so the project structure is tracked in git
+!**/.gitkeep
+
+# --- Python ---
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+env/
+
+# --- OS / editor / secrets ---
+.DS_Store
+Thumbs.db
+.env
+.env.local
