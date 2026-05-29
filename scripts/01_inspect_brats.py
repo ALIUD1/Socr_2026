@@ -45,16 +45,33 @@ LABELS = {
 }
 
 
-def find_file(patient_dir, suffix):
+def find_image(patient_dir, suffix):
     """
-    BraTS files are named  <patient_id>-<modality>.nii  (or .nii.gz if compressed)
-    e.g.  BraTS-GLI-00000-000-t2f.nii
-    The "*.nii*" pattern matches both .nii and .nii.gz, so this works either way.
+    Find the .nii file for a given modality/suffix in ONE patient folder.
+
+    This BraTS copy has a quirky layout we discovered by inspection:
+      - Each modality is a FOLDER named  <patient>-t2f.nii/  (etc.), and the real
+        image sits INSIDE it under an unpredictable name like 00000057_brain_flair.nii.
+      - The segmentation is a FLAT file:  <patient>-seg.nii  (no folder).
+    The folder/file name "<patient>-<suffix>.nii" is predictable; the inner filename
+    is not. So: find the predictable entry, and if it's a folder, grab the single
+    .nii inside it; otherwise it's already the file we want.
     """
-    matches = glob.glob(os.path.join(patient_dir, f"*-{suffix}.nii*"))
+    # find the predictably-named entry, e.g. "<patient>-t2f.nii"
+    matches = glob.glob(os.path.join(patient_dir, f"*-{suffix}.nii"))
     if not matches:
-        raise FileNotFoundError(f"No *-{suffix}.nii(.gz) file found in {patient_dir}")
-    return matches[0]
+        raise FileNotFoundError(f"No *-{suffix}.nii entry in {patient_dir}")
+    entry = matches[0]
+
+    # if it's a FOLDER (the modalities), descend and grab the one .nii inside
+    if os.path.isdir(entry):
+        inner = glob.glob(os.path.join(entry, "*.nii"))
+        if not inner:
+            raise FileNotFoundError(f"No .nii file inside {entry}")
+        return inner[0]
+
+    # otherwise it's already a flat file (seg) -- use it directly
+    return entry
 
 
 def main():
@@ -65,8 +82,8 @@ def main():
     args = parser.parse_args()
 
     # --- locate the two files we care about for the first prototype ---
-    flair_path = find_file(args.patient_dir, "t2f")   # t2f == FLAIR in BraTS 2023
-    seg_path = find_file(args.patient_dir, "seg")     # the tumor label map
+    flair_path = find_image(args.patient_dir, "t2f")   # t2f == FLAIR in BraTS 2023
+    seg_path = find_image(args.patient_dir, "seg")     # the tumor label map
 
     # --- load them. nib.load is lazy; get_fdata() pulls the voxels into a numpy array ---
     flair_img = nib.load(flair_path)
