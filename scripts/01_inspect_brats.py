@@ -47,13 +47,13 @@ LABELS = {
 
 def find_file(patient_dir, suffix):
     """
-    BraTS files are named  <patient_id>-<modality>.nii.gz
-    e.g.  BraTS-GLI-00000-000-t2f.nii.gz
-    We glob for the one ending in the modality we want.
+    BraTS files are named  <patient_id>-<modality>.nii  (or .nii.gz if compressed)
+    e.g.  BraTS-GLI-00000-000-t2f.nii
+    The "*.nii*" pattern matches both .nii and .nii.gz, so this works either way.
     """
-    matches = glob.glob(os.path.join(patient_dir, f"*-{suffix}.nii.gz"))
+    matches = glob.glob(os.path.join(patient_dir, f"*-{suffix}.nii*"))
     if not matches:
-        raise FileNotFoundError(f"No *-{suffix}.nii.gz file found in {patient_dir}")
+        raise FileNotFoundError(f"No *-{suffix}.nii(.gz) file found in {patient_dir}")
     return matches[0]
 
 
