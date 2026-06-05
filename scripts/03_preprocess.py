@@ -34,8 +34,18 @@ def pad_to(img, size=TARGET_SIZE):
     top, left = ph // 2, pw // 2
     return np.pad(img, ((top, ph - top), (left, pw - left)))
 
-def find_flair(pdir): return glob.glob(os.path.join(pdir, "*-t2f.nii/*.nii"))[0]
-def find_seg(pdir):   return glob.glob(os.path.join(pdir, "*-seg.nii"))[0]
+def find_image(pdir, suffix):
+    """Find the .nii for a modality/suffix — handles BOTH flat files and nested folders."""
+    matches = glob.glob(os.path.join(pdir, f"*-{suffix}.nii*"))
+    if not matches:
+        raise FileNotFoundError(f"No *-{suffix}.nii* in {pdir}")
+    entry = matches[0]
+    if os.path.isdir(entry):                       # nested: modality is a folder
+        inner = glob.glob(os.path.join(entry, "*.nii*"))
+        if not inner:
+            raise FileNotFoundError(f"No image file inside {entry}")
+        return inner[0]
+    return entry                                   # flat: modality is a direct file
 
 def main():
     # load the shared atlas ONCE: shape (6, 240, 240, 155), each lobe normalized to [0,1]
@@ -57,8 +67,8 @@ def main():
     manifest = []
     for p in patients:
         pdir  = os.path.join(BRATS_DIR, p)
-        flair = normalize_flair(load_vol(find_flair(pdir)))
-        seg   = load_vol(find_seg(pdir)).astype(np.float32)
+        flair = normalize_flair(load_vol(find_image(pdir, "t2f")))
+        seg   = load_vol(find_image(pdir, "seg")).astype(np.float32)
         split = split_of[p]
 
         for z in range(flair.shape[2]):
