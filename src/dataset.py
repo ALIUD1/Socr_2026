@@ -26,4 +26,12 @@ class SliceDataset(Dataset):
         target = stack[0:1]
         cond = stack[1:8]
         return torch.from_numpy(target), torch.from_numpy(cond)
-        
+
+if __name__ == "__main__":
+    ds = SliceDataset("train")
+    print("dataset size:", len(ds))
+    target, cond = ds[0]
+    print("one example:", target.shape, cond.shape)
+    loader = DataLoader(ds, batch_size=16, shuffle=True, num_workers=2)
+    tb, cb = next(iter(loader))
+    print("one batch:", tb.shape, cb.shape)
