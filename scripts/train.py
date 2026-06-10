@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from diffusers import UNet2DModel
 from src.dataset import SliceDataset
 
-DEVICE, T, BATCH, EPOCHS, LR = "cuda", 1000, 16, 20, 1e-4
+DEVICE, T, BATCH, EPOCHS, LR = "cuda", 1000, 8, 20, 1e-4
 CKPT_DIR = "models"
 
 def main():
