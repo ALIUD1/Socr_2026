@@ -32,7 +32,6 @@ def main():
         if cond[0].sum() > 100:        # channel 0 of cond is the mask; >100 tumor voxels
             print("using slice", i, "with tumor voxels:", cond[0].sum().item())
             break
-    cond = cond.unsqueeze(0).to(DEVICE)
     cond = cond.unsqueeze(0).to(DEVICE)              # (1, 7, 256, 256)
 
     # 4. start from PURE NOISE and denoise step by step
