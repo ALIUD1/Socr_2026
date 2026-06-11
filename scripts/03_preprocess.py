@@ -9,7 +9,7 @@ ATLAS_DIR = "data/processed/atlas_in_brats"
 OUT_DIR   = "data/processed/slices"
 LOBES = ["frontal", "parietal", "temporal", "occipital", "cerebellum", "insula"]
 
-N_PATIENTS       = 40          # subset to start; raise later
+N_PATIENTS       = 150          # subset to start; raise later
 TARGET_SIZE      = 256         # pad 240 -> 256
 MIN_BRAIN_VOXELS = 1000        # skip slices with less brain than this
 SPLIT            = (0.7, 0.15, 0.15)   # train / val / test, by PATIENT
