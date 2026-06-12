@@ -51,8 +51,8 @@ def main():
     ax[1].imshow(gen.T,  cmap="gray", origin="lower"); ax[1].set_title("GENERATED FLAIR")
     ax[2].imshow(mask.T, cmap="hot",  origin="lower"); ax[2].set_title("tumor mask (conditioning)")
     for a in ax: a.axis("off")
-    plt.savefig("outputs/generated_sample.png", dpi=120)
-    print("saved outputs/generated_sample.png")
+    plt.savefig("outputs/generated_sample_v2.png", dpi=120)
+    print("saved outputs/generated_sample_v2.png")
 
 if __name__ == "__main__":
     main()
