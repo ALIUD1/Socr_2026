@@ -17,7 +17,7 @@ def main():
         down_block_types=("DownBlock2D", "DownBlock2D", "DownBlock2D", "AttnDownBlock2D"),
         up_block_types=("AttnUpBlock2D", "UpBlock2D", "UpBlock2D", "UpBlock2D"),
     ).to(DEVICE)
-    model.load_state_dict(torch.load("models/diffusion_last.pt", map_location=DEVICE))
+    model.load_state_dict(torch.load("models/diffusion_ema.pt", map_location=DEVICE))
     model.eval()
 
     # 2. the scheduler holds the reverse-step math (same schedule we trained with)
@@ -51,8 +51,8 @@ def main():
     ax[1].imshow(gen.T,  cmap="gray", origin="lower"); ax[1].set_title("GENERATED FLAIR")
     ax[2].imshow(mask.T, cmap="hot",  origin="lower"); ax[2].set_title("tumor mask (conditioning)")
     for a in ax: a.axis("off")
-    plt.savefig("outputs/generated_sample_v2.png", dpi=120)
-    print("saved outputs/generated_sample_v2.png")
+    plt.savefig("outputs/generated_sample_v3_ema.png", dpi=120)
+    print("saved outputs/generated_sample_v3_ema.png")
 
 if __name__ == "__main__":
     main()

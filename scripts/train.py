@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""train.py — train a conditional diffusion model: mask+atlas -> FLAIR (mixed precision)."""
+"""train.py — conditional diffusion (mixed precision + EMA)."""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -7,6 +7,7 @@ import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from diffusers import UNet2DModel
+from diffusers.training_utils import EMAModel          # NEW: the EMA helper
 from src.dataset import SliceDataset
 
 DEVICE, T, BATCH, EPOCHS, LR = "cuda", 1000, 8, 30, 1e-4
@@ -27,7 +28,8 @@ def main():
         up_block_types=("AttnUpBlock2D", "UpBlock2D", "UpBlock2D", "UpBlock2D"),
     ).to(DEVICE)
     opt    = torch.optim.AdamW(model.parameters(), lr=LR)
-    scaler = torch.amp.GradScaler("cuda")          # NEW: manages 16-bit gradient scaling
+    scaler = torch.amp.GradScaler("cuda")
+    ema    = EMAModel(model.parameters(), decay=0.999)   # NEW: shadow average of the weights
 
     for epoch in range(EPOCHS):
         running = 0.0
@@ -43,16 +45,23 @@ def main():
             x_in  = torch.cat([noisy, cond], dim=1)
 
             opt.zero_grad()
-            with torch.amp.autocast("cuda"):       # NEW: run forward+loss in 16-bit where safe
+            with torch.amp.autocast("cuda"):
                 pred = model(x_in, t).sample
                 loss = F.mse_loss(pred, noise)
-            scaler.scale(loss).backward()          # NEW: scale loss up, then backprop
-            scaler.step(opt)                       # NEW: unscale grads, then optimizer step
-            scaler.update()                        # NEW: adjust the scale factor for next time
+            scaler.scale(loss).backward()
+            scaler.step(opt)
+            scaler.update()
+            ema.step(model.parameters())                 # NEW: update the EMA after each step
             running += loss.item()
 
         print(f"epoch {epoch}: loss {running/len(loader):.4f}")
+
+        # save the raw weights, then the EMA weights (the ones we'll sample from)
         torch.save(model.state_dict(), os.path.join(CKPT_DIR, "diffusion_last.pt"))
+        ema.store(model.parameters())                    # NEW: stash the live training weights
+        ema.copy_to(model.parameters())                  # NEW: load EMA weights into the model
+        torch.save(model.state_dict(), os.path.join(CKPT_DIR, "diffusion_ema.pt"))  # NEW: save EMA
+        ema.restore(model.parameters())                  # NEW: put the training weights back
 
 if __name__ == "__main__":
     main()
