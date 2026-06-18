@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from diffusers import UNet2DModel
 from diffusers.training_utils import EMAModel          # NEW: the EMA helper
 from src.dataset import SliceDataset
-form src.model import build_model
+from src.model import build_model
 
 DEVICE, T, BATCH, EPOCHS, LR = "cuda", 1000, 32, 80, 1e-4
 CKPT_DIR = "models"
