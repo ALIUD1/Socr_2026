@@ -6,17 +6,13 @@ import torch, numpy as np
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
 from diffusers import UNet2DModel, DDPMScheduler
 from src.dataset import SliceDataset
+from src.model import build_model
 
 DEVICE = "cuda"
 
 def main():
     # 1. rebuild the SAME architecture, then load the trained weights
-    model = UNet2DModel(
-        sample_size=256, in_channels=8, out_channels=1, layers_per_block=2,
-        block_out_channels=(64, 128, 256, 256),
-        down_block_types=("DownBlock2D", "DownBlock2D", "DownBlock2D", "AttnDownBlock2D"),
-        up_block_types=("AttnUpBlock2D", "UpBlock2D", "UpBlock2D", "UpBlock2D"),
-    ).to(DEVICE)
+    model = build_model().to(DEVICE)
     model.load_state_dict(torch.load("models/diffusion_ema.pt", map_location=DEVICE))
     model.eval()
 

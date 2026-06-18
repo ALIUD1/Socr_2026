@@ -9,8 +9,9 @@ from torch.utils.data import DataLoader
 from diffusers import UNet2DModel
 from diffusers.training_utils import EMAModel          # NEW: the EMA helper
 from src.dataset import SliceDataset
+form src.model import build_model
 
-DEVICE, T, BATCH, EPOCHS, LR = "cuda", 1000, 8, 30, 1e-4
+DEVICE, T, BATCH, EPOCHS, LR = "cuda", 1000, 32, 80, 1e-4
 CKPT_DIR = "models"
 
 def main():
@@ -21,12 +22,7 @@ def main():
 
     loader = DataLoader(SliceDataset("train"), batch_size=BATCH, shuffle=True, num_workers=4)
 
-    model = UNet2DModel(
-        sample_size=256, in_channels=8, out_channels=1, layers_per_block=2,
-        block_out_channels=(64, 128, 256, 256),
-        down_block_types=("DownBlock2D", "DownBlock2D", "DownBlock2D", "AttnDownBlock2D"),
-        up_block_types=("AttnUpBlock2D", "UpBlock2D", "UpBlock2D", "UpBlock2D"),
-    ).to(DEVICE)
+    model = build_model().to(DEVICE)
     opt    = torch.optim.AdamW(model.parameters(), lr=LR)
     scaler = torch.amp.GradScaler("cuda")
     ema    = EMAModel(model.parameters(), decay=0.999)   # NEW: shadow average of the weights

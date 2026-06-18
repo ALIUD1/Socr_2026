@@ -1,10 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=brainmri-train
-#SBATCH --account=dinov99
-#SBATCH --partition=gpu
+#SBATCH --account=dinov_owned1
+#SBATCH --partition=gpu-rtx6000
 #SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
 #SBATCH --time=12:00:00
 #SBATCH --output=outputs/train_%j.log
 
