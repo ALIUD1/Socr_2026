@@ -4,7 +4,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch, numpy as np
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
-from diffusers import UNet2DModel, DDPMScheduler
+from diffusers import UNet2DModel, DDIMScheduler
 from src.dataset import SliceDataset
 
 DEVICE, N_SAMPLES = "cuda", 6
@@ -18,7 +18,8 @@ def main():
     ).to(DEVICE)
     model.load_state_dict(torch.load("models/diffusion_ema.pt", map_location=DEVICE))
     model.eval()
-    sched = DDPMScheduler(num_train_timesteps=1000)
+    sched = DDIMScheduler(num_train_timesteps=1000)
+    sched.set_timesteps(50)  
 
     ds = SliceDataset("val")
     for i in range(len(ds)):                      # find a tumor slice
@@ -45,7 +46,7 @@ def main():
     for k, g in enumerate(samples):
         ax[k+1].imshow(g.T, cmap="gray", origin="lower"); ax[k+1].set_title(f"gen {k}"); ax[k+1].axis("off")
     for a in ax[N_SAMPLES+1:]: a.axis("off")
-    plt.tight_layout(); plt.savefig("outputs/eval_grid.png", dpi=110); print("saved outputs/eval_grid.png")
+    plt.tight_layout(); plt.savefig("outputs/eval_grid_ddim.png", dpi=110); print("saved outputs/eval_grid_ddim.png")
 
 if __name__ == "__main__":
     main()
