@@ -11,7 +11,7 @@ from diffusers.training_utils import EMAModel          # NEW: the EMA helper
 from src.dataset import SliceDataset
 from src.model import build_model
 
-DEVICE, T, BATCH, EPOCHS, LR = "cuda", 1000, 32, 80, 1e-4
+DEVICE, T, BATCH, EPOCHS, LR = "cuda", 1000, 64, 80, 1e-4
 CKPT_DIR = "models"
 
 def main():
