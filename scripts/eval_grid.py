@@ -14,7 +14,7 @@ def main():
     model = build_model().to(DEVICE)
     model.load_state_dict(torch.load("models/diffusion_ema.pt", map_location=DEVICE))
     model.eval()
-    sched = DDIMScheduler(num_train_timesteps=1000)
+    sched = DDIMScheduler(num_train_timesteps=1000, clip_sample=True)
     sched.set_timesteps(200)  
 
     ds = SliceDataset("val")
@@ -33,14 +33,14 @@ def main():
             with torch.no_grad():
                 npred = model(torch.cat([x, cond_b], dim=1), t).sample
             x = sched.step(npred, t, x).prev_sample
-        g = (x[0, 0].cpu().numpy() + 1) / 2
+        g = np.clip((x[0, 0].cpu().numpy() + 1) / 2, 0, 1)
         samples.append(g)
         print(f"  gen sample {s}: brain mean intensity = {g[g > 0.05].mean():.3f}")
 
     fig, ax = plt.subplots(2, 4, figsize=(16, 8)); ax = ax.ravel()
-    ax[0].imshow(real.T, cmap="gray", origin="lower"); ax[0].set_title("REAL"); ax[0].axis("off")
+    ax[0].imshow(real.T, cmap="gray", origin="lower", vmin=0, vmax=1); ax[0].set_title("REAL"); ax[0].axis("off")
     for k, g in enumerate(samples):
-        ax[k+1].imshow(g.T, cmap="gray", origin="lower"); ax[k+1].set_title(f"gen {k}"); ax[k+1].axis("off")
+        ax[k+1].imshow(g.T, cmap="gray", origin="lower", vmin=0, vmax=1); ax[k+1].set_title(f"gen {k}"); ax[k+1].axis("off")
     for a in ax[N_SAMPLES+1:]: a.axis("off")
     plt.tight_layout(); plt.savefig("outputs/eval_grid_ddim_3.png", dpi=110); print("saved outputs/eval_grid_ddim_3.png")
 
