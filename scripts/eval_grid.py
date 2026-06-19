@@ -42,7 +42,7 @@ def main():
     for k, g in enumerate(samples):
         ax[k+1].imshow(g.T, cmap="gray", origin="lower"); ax[k+1].set_title(f"gen {k}"); ax[k+1].axis("off")
     for a in ax[N_SAMPLES+1:]: a.axis("off")
-    plt.tight_layout(); plt.savefig("outputs/eval_grid_ddim_2.png", dpi=110); print("saved outputs/eval_grid_ddim_2.png")
+    plt.tight_layout(); plt.savefig("outputs/eval_grid_ddim_3.png", dpi=110); print("saved outputs/eval_grid_ddim_3.png")
 
 if __name__ == "__main__":
     main()
