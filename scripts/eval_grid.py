@@ -15,7 +15,7 @@ def main():
     model.load_state_dict(torch.load("models/diffusion_ema.pt", map_location=DEVICE))
     model.eval()
     sched = DDIMScheduler(num_train_timesteps=1000)
-    sched.set_timesteps(50)  
+    sched.set_timesteps(200)  
 
     ds = SliceDataset("val")
     for i in range(len(ds)):                      # find a tumor slice
