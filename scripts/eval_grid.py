@@ -18,9 +18,9 @@ def main():
     sched.set_timesteps(200)  
 
     ds = SliceDataset("val")
-    for i in range(len(ds)):                      # find a tumor slice
+    for i in range(len(ds)):                      # find a tumor slice (mask is cond channel 1 now)
         target, cond = ds[i]
-        if cond[0].sum() > 100:
+        if cond[1].sum() > 100:
             break
     real   = target[0].numpy()
     cond_b = cond.unsqueeze(0).to(DEVICE)

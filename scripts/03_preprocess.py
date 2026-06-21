@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""03_preprocess.py — build 2D training slices (FLAIR + mask + 6 atlas) for the diffusion model."""
+"""03_preprocess.py — build 2D training slices (FLAIR + T1 + mask + 6 atlas) for the diffusion model."""
 import os, glob, csv, random
 import numpy as np
 import nibabel as nib
@@ -9,7 +9,7 @@ ATLAS_DIR = "data/processed/atlas_in_brats"
 OUT_DIR   = "data/processed/slices"
 LOBES = ["frontal", "parietal", "temporal", "occipital", "cerebellum", "insula"]
 
-N_PATIENTS       = 1300         # full dataset (caps at the ~1250 available)
+N_PATIENTS       = 150          # subset to TEST the new T1 conditioning; raise to full later
 TARGET_SIZE      = 256         # pad 240 -> 256
 MIN_BRAIN_VOXELS = 1000        # skip slices with less brain than this
 SPLIT            = (0.7, 0.15, 0.15)   # train / val / test, by PATIENT
@@ -68,6 +68,7 @@ def main():
     for p in patients:
         pdir  = os.path.join(BRATS_DIR, p)
         flair = normalize_flair(load_vol(find_image(pdir, "t2f")))
+        t1    = normalize_flair(load_vol(find_image(pdir, "t1n")))   # NEW: patient T1 structure, same percentile norm
         seg   = load_vol(find_image(pdir, "seg")).astype(np.float32)
         split = split_of[p]
 
@@ -83,7 +84,7 @@ def main():
             fl = flair[:, :, z]
             if(fl >0).sum() <MIN_BRAIN_VOXELS:
                 continue
-            channels = [fl, seg[:,:,z]] + [atlas[k, :, :, z] for k in range(6)]
+            channels = [fl, t1[:, :, z], seg[:, :, z]] + [atlas[k, :, :, z] for k in range(6)]  # 9 ch: FLAIR, T1, mask, 6 atlas
             stack = np.stack([pad_to(c) for c in channels]).astype(np.float16)
             out_path = os.path.join(OUT_DIR, split, f"{p}_z{z:03d}.npy")
             np.save(out_path, stack)

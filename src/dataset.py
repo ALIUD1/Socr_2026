@@ -22,9 +22,9 @@ class SliceDataset(Dataset):
         # 3. cond    = the mask+atlas channels:                      stack[1:8]   # (7,256,256)
         # 4. convert both to tensors with torch.from_numpy(...)
         # 5. return target, cond
-        stack = np.load(self.files[idx]).astype(np.float32)
-        target = stack[0:1]
-        cond = stack[1:8]
+        stack = np.load(self.files[idx]).astype(np.float32)   # (9,256,256): FLAIR, T1, mask, 6 atlas
+        target = stack[0:1]      # FLAIR (the channel we generate)
+        cond = stack[1:9]        # conditioning: T1 + mask + 6 atlas (8 channels)
         return torch.from_numpy(target), torch.from_numpy(cond)
 
 if __name__ == "__main__":

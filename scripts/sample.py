@@ -25,8 +25,8 @@ def main():
     # find the first validation slice that actually contains a tumor
     for i in range(len(ds)):
         target, cond = ds[i]
-        if cond[0].sum() > 100:        # channel 0 of cond is the mask; >100 tumor voxels
-            print("using slice", i, "with tumor voxels:", cond[0].sum().item())
+        if cond[1].sum() > 100:        # channel 1 of cond is the mask now (T1 is channel 0); >100 tumor voxels
+            print("using slice", i, "with tumor voxels:", cond[1].sum().item())
             break
     cond = cond.unsqueeze(0).to(DEVICE)              # (1, 7, 256, 256)
 
@@ -40,7 +40,7 @@ def main():
     # 5. rescale [-1,1] -> [0,1] and show generated vs real vs the mask we conditioned on
     gen  = np.clip((x[0, 0].cpu().numpy() + 1) / 2, 0, 1)
     real = target[0].numpy()
-    mask = cond[0, 0].cpu().numpy()
+    mask = cond[0, 1].cpu().numpy()   # mask is conditioning channel 1 (T1 is 0)
 
     fig, ax = plt.subplots(1, 3, figsize=(15, 5))
     ax[0].imshow(real.T, cmap="gray", origin="lower", vmin=0, vmax=1); ax[0].set_title("real FLAIR")
