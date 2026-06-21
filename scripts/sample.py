@@ -3,6 +3,7 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch, numpy as np
+from datetime import datetime
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
 from diffusers import UNet2DModel, DDIMScheduler
 from src.dataset import SliceDataset
@@ -47,8 +48,9 @@ def main():
     ax[1].imshow(gen.T,  cmap="gray", origin="lower", vmin=0, vmax=1); ax[1].set_title("GENERATED FLAIR")
     ax[2].imshow(mask.T, cmap="hot",  origin="lower"); ax[2].set_title("tumor mask (conditioning)")
     for a in ax: a.axis("off")
-    plt.savefig("outputs/generated_sample_v3_ema.png", dpi=120)
-    print("saved outputs/generated_sample_v3_ema.png")
+    out = f"outputs/generated_sample_{datetime.now():%Y%m%d_%H%M%S}.png"   # unique per run
+    plt.savefig(out, dpi=120)
+    print("saved", out)
 
 if __name__ == "__main__":
     main()

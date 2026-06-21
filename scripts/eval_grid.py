@@ -3,6 +3,7 @@
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch, numpy as np
+from datetime import datetime
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
 from diffusers import UNet2DModel, DDIMScheduler
 from src.dataset import SliceDataset
@@ -42,7 +43,8 @@ def main():
     for k, g in enumerate(samples):
         ax[k+1].imshow(g.T, cmap="gray", origin="lower", vmin=0, vmax=1); ax[k+1].set_title(f"gen {k}"); ax[k+1].axis("off")
     for a in ax[N_SAMPLES+1:]: a.axis("off")
-    plt.tight_layout(); plt.savefig("outputs/eval_grid_ddim_5.png", dpi=110); print("saved outputs/eval_grid_ddim_5.png")
+    out = f"outputs/eval_grid_{datetime.now():%Y%m%d_%H%M%S}.png"   # unique name per run -> never overwrites
+    plt.tight_layout(); plt.savefig(out, dpi=110); print("saved", out)
 
 if __name__ == "__main__":
     main()
