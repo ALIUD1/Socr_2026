@@ -10,4 +10,4 @@
 module load python
 source ~/envs/brainmri/bin/activate
 cd ~/Summer2026
-python scripts/train.py
+python -u scripts/train.py
