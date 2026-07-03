@@ -1,37 +1,53 @@
-import os, glob
+import os, glob, csv
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
 class SliceDataset(Dataset):
-    """Serves one preprocessed slice: target FLAIR + conditioning (mask + 6 atlas)."""
+    """Serves one preprocessed slice: target FLAIR + conditioning (T1 + mask + 6 atlas).
 
-    def __init__(self, split, root="data/processed/slices"):
-        # gather all .npy files for this split (train/val/test)
+    If return_caption=True it also returns the slice's text caption (from captions.csv),
+    for text conditioning. Default False keeps the old (target, cond) behaviour so the
+    existing train/eval scripts are unaffected.
+    """
+
+    def __init__(self, split, root="data/processed/slices", return_caption=False):
         self.files = sorted(glob.glob(os.path.join(root, split, "*.npy")))
         if not self.files:
             raise FileNotFoundError(f"No .npy files in {root}/{split}")
+
+        self.return_caption = return_caption
+        self.captions = {}
+        if return_caption:
+            # load captions.csv ONCE into a {filename -> caption} lookup table
+            cap_path = os.path.join(root, "captions.csv")
+            with open(cap_path, newline="") as f:
+                for row in csv.DictReader(f):
+                    self.captions[row["file"]] = row["caption"]
+            if not self.captions:
+                raise FileNotFoundError(f"No captions loaded from {cap_path}")
 
     def __len__(self):
         return len(self.files)
 
     def __getitem__(self, idx):
-        # ---- TODO ----
-        # 1. load the file: stack = np.load(self.files[idx]).astype(np.float32)   # (8,256,256)
-        # 2. target  = the FLAIR channel, KEEPING the channel axis:  stack[0:1]   # (1,256,256)
-        # 3. cond    = the mask+atlas channels:                      stack[1:8]   # (7,256,256)
-        # 4. convert both to tensors with torch.from_numpy(...)
-        # 5. return target, cond
-        stack = np.load(self.files[idx]).astype(np.float32)   # (9,256,256): FLAIR, T1, mask, 6 atlas
-        target = stack[0:1]      # FLAIR (the channel we generate)
-        cond = stack[1:9]        # conditioning: T1 + mask + 6 atlas (8 channels)
-        return torch.from_numpy(target), torch.from_numpy(cond)
+        path   = self.files[idx]
+        stack  = np.load(path).astype(np.float32)      # (9,256,256): FLAIR, T1, mask, 6 atlas
+        target = torch.from_numpy(stack[0:1])          # FLAIR — the channel we generate
+        cond   = torch.from_numpy(stack[1:9])          # T1 + mask + 6 atlas (8 channels)
+        if self.return_caption:
+            caption = self.captions[os.path.basename(path)]   # look up by filename
+            return target, cond, caption
+        return target, cond
 
 if __name__ == "__main__":
-    ds = SliceDataset("train")
+    # quick smoke test of the caption path
+    ds = SliceDataset("train", return_caption=True)
     print("dataset size:", len(ds))
-    target, cond = ds[0]
+    target, cond, cap = ds[0]
     print("one example:", target.shape, cond.shape)
+    print("caption:", cap)
     loader = DataLoader(ds, batch_size=16, shuffle=True, num_workers=2)
-    tb, cb = next(iter(loader))
-    print("one batch:", tb.shape, cb.shape)
+    tb, cb, capb = next(iter(loader))
+    print("one batch:", tb.shape, cb.shape, "| n captions:", len(capb))
+    print("sample caption from batch:", capb[0])
