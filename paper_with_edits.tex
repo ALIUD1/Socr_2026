@@ -1,0 +1,433 @@
+\documentclass[11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{subcaption}
+\usepackage{authblk}
+\usepackage[hidelinks]{hyperref}
+\usepackage[capitalize]{cleveref}
+
+\usepackage[numbers]{natbib}
+
+\graphicspath{{../Figures/}{./images/}}
+
+% \addbibresource{../references.bib}
+
+
+% Allow URL line breaks
+\PassOptionsToPackage{hyphens}{url}
+
+\title{Synthetic 2D and 3D brain MRI generation with conditional GANs, wavelet-domain GANs, and diffusion models}
+
+\author[1]{Achu Shankar}
+\author[1]{Ryan Kwon}
+\author[1]{Yueyang Shen}
+\author[1]{Alex Liu}
+\author[1]{Jiayi Yu}
+\author[1]{Simeone Marino}
+\author[1,*]{Ivo D.\ Dinov}
+
+\affil[1]{Statistics Online Computational Resource (SOCR), University of Michigan, Ann Arbor, MI 48109, USA}
+\affil[*]{Corresponding author: \texttt{statistics@umich.edu}}
+
+\date{}
+
+\begin{document}
+
+\maketitle
+
+%==============================================================
+\begin{abstract}
+\noindent
+Access to large quantities of realistic neuroimaging data is constrained by acquisition cost, scanning time, and patient privacy regulations. Synthetic medical imaging data offers a route to share population-representative samples without exposing identifiable patient information. This Data Descriptor presents the \emph{SOCR AI Bot}, a suite of trained generative deep neural network models for synthetic brain MRI, together with sample generated images, validation metrics, and an interactive web application. The models include conditional deep convolutional GANs trained on the TCGA brain MRI collection (3{,}929 axial slices) and on the BraTS dataset (50{,}759 slices extracted from 369 multi-contrast volumes), a wavelet-domain GAN for multi-contrast T1, T1ce, T2 and FLAIR generation with paired segmentation masks, a denoising diffusion implicit model, and two 3D conditional GANs producing volumes at $32^{3}$ and $64^{3}$ resolutions. Conditioning variables include tumour presence, slice orientation, and anatomical location, yielding 18 distinct conditional classes for the BraTS-based models. Released artefacts comprise trained model weights, pre-generated image samples, evaluation metric tables, source code, and an interactive web service.
+\end{abstract}
+
+\vspace{0.5em}
+\noindent\textbf{Keywords:} synthetic medical imaging; generative adversarial networks; diffusion models; wavelet transform; brain MRI; data sharing; digital twins.
+
+\newpage
+
+%==============================================================
+\section*{Background \& Summary}
+\label{sec:background}
+
+The rapid expansion of artificial intelligence (AI) and statistical deep learning has created substantial opportunities in biomedical research, including image-based diagnosis, prognosis, and personalised treatment planning\cite{castiglioni2021ai,dinov2023datascience,dinov2024neuroinformatics,huang2020artificial,Tang2019}. Progress in these areas depends on access to large, well-curated imaging datasets. Neuroimaging data such as magnetic resonance imaging (MRI) is expensive and time-consuming to acquire, frequently encumbered by patient-privacy regulations such as the Health Insurance Portability and Accountability Act (HIPAA), and difficult to share across institutional boundaries even after de-identification\cite{white2022data,wang2019leveraging,raab2023federated}. These constraints limit the scale and diversity of data available for AI model development, education, and methodological benchmarking, which in turn affects generalisation and equity of downstream systems\cite{stahl2023ethics,niraula2023clinical,dinovdata}.
+
+Synthetic data generation has emerged as a complementary strategy. Generative models trained on real cohorts can produce images whose joint statistics approximate those of the training distribution, but which do not correspond to any individual patient record\cite{jordon2022synthetic,deldjoo2024review}. Such data can support data augmentation\cite{frid2018gan,bowles2018gan,shin2018medical}, cross-modality translation\cite{nie2017medical,zhu2017unpaired,wolterink2017deep,armanious2020medgan}, and volumetric synthesis\cite{chartsias2019disentangled,dalca2019learning}. Foundational architectures include the original generative adversarial network (GAN)\cite{goodfellow2014generative}, deep convolutional GAN variants\cite{radford2015unsupervised}, variational autoencoders (VAEs)\cite{kingma2013auto}, and hybrid VAE--GAN models\cite{larsen2016autoencoding}. More recent work has explored transformer-based and steerable architectures for capturing complex anatomical structure\cite{xiang2021bio}.
+
+The field of synthetic brain MRI generation has advanced rapidly between 2023 and 2025. CounterSynth\cite{pombo2023equitable} introduced morphologically constrained 3D GANs producing counterfactual brain images through diffeomorphic deformations. SADM\cite{yoon2023sadm} combined diffusion models with transformer-based temporal conditioning for longitudinal generation. BrLP\cite{puglisi2024brlp} used latent diffusion with ControlNet for patient-specific neurodegenerative progression. Akbar et~al.\cite{akbar2024brain} systematically compared GANs and diffusion models for tumour synthesis. MU-Diff\cite{dayarathna2025mudiff} employed mutual learning between dual diffusion generators for multi-contrast lesion synthesis. Tudosiu et~al.\cite{tudosiu2024realistic} trained a VQ-VAE + Transformer at scale on $\sim$40{,}000 UK Biobank scans. MCFDiffusion\cite{zuo2025multichannel} proposed a multi-channel fusion approach for tumour augmentation. Table~\ref{tab:sota_comparison} summarises these methods alongside the present contributions.
+
+The data resource described here was developed to address several practical needs. First, it provides openly distributable synthetic brain MRI data covering tumour and non-tumour phenotypes across multiple contrasts and three orthogonal anatomical planes. Second, the released artefacts include both the pre-generated synthetic samples and the model weights, enabling on-demand generation of arbitrarily many additional samples. Third, a public web application (the SOCR AI Bot synthetic brain generator) exposes the models through a browser interface, reducing the technical barrier for educators, clinicians-in-training, and researchers who wish to inspect or reuse the data. Compared with prior releases, the present collection is differentiated by (i) the inclusion of multiple complementary generators (conditional 2D GANs, wavelet-domain GANs, diffusion models, and 3D GANs) trained under matched preprocessing protocols, (ii) the provision of paired tumour segmentation masks alongside the multi-contrast outputs, and (iii) compact model footprints that enable inference on standard workstation hardware. The remainder of this article  documents the \emph{SOCR AI Bot} data preprocessing protocol and model architectures (Methods), the structure and access points of the released data (Data Records), the validation procedures and results (Technical Validation), and practical guidance for reuse (Usage Notes).
+
+\begin{table*}[!t]
+\centering
+\footnotesize
+\caption{State-of-the-art synthetic brain MRI generation methods (2023--2025) and the \emph{SOCR AI Bot} models. FID, Fr\'echet Inception Distance; SSIM, Structural Similarity Index; PSNR, Peak Signal-to-Noise Ratio; Dice, segmentation overlap; MAE, mean absolute error; VBM, voxel-based morphometry. Multi-contrast denotes any combination of T1, T1ce, T2, FLAIR.}
+\label{tab:sota_comparison}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{p{2.7cm}cp{2.3cm}cp{2.2cm}p{2.0cm}p{2.6cm}c}
+\toprule
+\textbf{Method} & \textbf{Year} & \textbf{Architecture} & \textbf{Resolution} & \textbf{Dataset(s)} & \textbf{Modalities} & \textbf{Metrics} & \textbf{Code} \\
+\midrule
+\multicolumn{8}{l}{\textit{Recent state-of-the-art methods}} \\
+\midrule
+CounterSynth\cite{pombo2023equitable} & 2023 & 3D cGAN (diffeo.\ warp) & $128^{3}$, 1\,mm & UK Biobank, OASIS & T1 & ACC, MAE, FID & Yes \\
+SADM\cite{yoon2023sadm} & 2023 & Diffusion + Transformer & $128\!\times\!128\!\times\!64$ & ACDC, brain ageing & T1 (longit.) & SSIM, PSNR, NRMSE & Yes \\
+BrLP\cite{puglisi2024brlp} & 2024 & Latent diffusion + ControlNet & $256^{3}$ & ADNI, OASIS, AIBL ($n\!=\!11{,}730$) & T1 (AD prog.) & FID, Dice, MAE, KL & Yes \\
+Akbar et~al.\cite{akbar2024brain} & 2024 & StyleGAN3 vs.\ DDPM & $128^{3}$ & BraTS 2020/21 & T1, T1ce, T2, FLAIR & Dice (seg.\ eval) & Yes \\
+MU-Diff\cite{dayarathna2025mudiff} & 2025 & Dual diffusion + GAN & $240\!\times\!240$ (2D) & BraTS 2020, ISLES 2018 & Multi-contrast & SSIM, PSNR, MAE, Dice & Yes \\
+Tudosiu et~al.\cite{tudosiu2024realistic} & 2024 & VQ-VAE + Transformer & $182^{3}$, 1\,mm & UK Biobank ($\sim$40k), ADNI & T1 & FID, Wasserstein, VBM & Partial \\
+MCFDiffusion\cite{zuo2025multichannel} & 2025 & DDIM (multi-channel) & $256\!\times\!256$ (2D) & BraTS 2019 & FLAIR (tumour) & Acc, Dice & Yes \\
+\midrule
+\multicolumn{8}{l}{\textit{Models released with the \emph{SOCR AI Bot}}} \\
+\midrule
+braingen GAN TCGA\_v1 & 2025 & cDCGAN & $128\!\times\!128$ & TCGA ($n\!=\!3{,}929$) & Grayscale + mask & FID, SSIM, MSE, PSNR & Yes \\
+braingen cGAN BraTS\_v1 & 2025 & cDCGAN (18 classes) & $128\!\times\!128$ & BraTS (50{,}759 slices) & T1, T2, FLAIR + mask & FID, SSIM, MSE, PSNR & Yes \\
+braingen Wavelet GAN\_v1 & 2025 & Wavelet + U-Net + attention & $256\!\times\!256$ & BraTS & T1, T1ce, T2, FLAIR + mask & FID, SSIM, MSE, PSNR & Yes \\
+braingen Diffuser v1 & 2025 & DDIM (uncond.) & $128\!\times\!128$ & BraTS & T1, T2, FLAIR & FID, SSIM, MSE, PSNR & Yes \\
+\textcolor{red}{braingen CondDiffuser BraTS\_v1} & \textcolor{red}{2025} & \textcolor{red}{Cond.\ DDPM/DDIM ($\epsilon$-pred)} & \textcolor{red}{$256\!\times\!256$} & \textcolor{red}{BraTS 2023 GLI ($n\!=\!1{,}252$)} & \textcolor{red}{FLAIR (cond.\ T1+mask+atlas)} & \textcolor{red}{PSNR, SSIM, bgSNR} & \textcolor{red}{Yes} \\
+braingen GAN3D\_v1 & 2025 & 3D cDCGAN & $32^{3}$, $64^{3}$ & BraTS (369 volumes) & T1 (volume) & FID, 3D-SSIM & Yes \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+%==============================================================
+\section*{Methods}
+\label{sec:methods}
+
+\subsection*{Data}
+
+Two publicly available datasets were used to train the released models: The Cancer Genome Atlas brain MRI collection (TCGA)\cite{cancergenomeatlas2013} and the Brain Tumor Segmentation challenge dataset (BraTS)\cite{bakas2017advancing,bakas2018identifying,menze2015multimodal}. The TCGA brain imaging data comprise 2D axial brain MRI slices labelled by tumour presence, with 2{,}556 tumour-negative and 1{,}373 tumour-positive images (3{,}929 images total). The BraTS dataset provides 369 multi-contrast volumetric scans, each containing co-registered T1-weighted, contrast-enhanced T1-weighted (T1ce), T2-weighted, and Fluid-Attenuated Inversion Recovery (FLAIR) sequences together with manual segmentation masks delineating tumour sub-regions. Both datasets follow standardised acquisition protocols and are widely used as benchmarks in the brain MRI synthesis community. Use of these public datasets in the present work did not require additional ethics review; their original collection was conducted under institutional ethics approval at the source institutions.
+
+\subsection*{Preprocessing}
+
+For the BraTS volumes, three orthogonal anatomical planes were considered: axial (superior, middle, inferior), sagittal (left, middle, right), and coronal (anterior, middle, posterior). Each volume was sliced along each plane at the corresponding location, yielding nine spatially distinct slice sets per volume. Each slice was assigned a binary tumour label based on the segmentation mask, producing $9 \times 2 = 18$ conditional classes. After slicing, approximately 50{,}759 2D slices were available across the 369 volumes. All slices were resampled to a uniform spatial grid, intensity-normalised to the range $[-1,1]$ (for the GAN models) or $[0,1]$ (for the diffusion model), and stored as multi-channel tensors with channels representing the available contrasts and the corresponding tumour mask.
+
+For the 3D models, the BraTS T1 volumes were resampled to isotropic grids at $32^{3}$ and $64^{3}$ voxels using trilinear interpolation. Intensity values were rescaled to the $[0,1]$ range. The TCGA images required minimal preprocessing because they are already provided as 2D axial slices; they were resized to $128\!\times\!128$ pixels with bilinear interpolation and intensity-normalised to $[-1,1]$.
+
+\subsection*{Data splitting}
+
+To ensure unbiased evaluation, all data partitions were performed at the patient (or volume) level rather than at the slice level. For the TCGA dataset, a 70\%/15\%/15\% stratified split was applied across the 3{,}929 images, preserving the proportion of tumour-positive and tumour-negative cases in each partition (approximately 2{,}750 training, 589 validation, and 590 test images). For the BraTS dataset, the 369 volumes were partitioned 70\%/15\%/15\% \emph{prior} to slice extraction so that all slices from a given subject reside in a single partition. The resulting per-partition slice counts vary across classes because of anatomy- and pathology-dependent slice availability. All reported metrics in this Data Descriptor are computed exclusively on the held-out test partitions. To quantify the uncertainty of metric estimates, 1{,}000 bootstrap resamples of the test set were used to compute 95\% confidence intervals.
+
+\subsection*{Two-dimensional generative models}
+
+Five distinct generative models were trained on 2D slices. Their key properties are summarised in Table~\ref{tab:sota_comparison} and Table~\ref{tab:training_config}. A high-level description of each model follows.
+
+\paragraph{braingen\_GAN\_TCGA\_v1.} A conditional deep convolutional GAN (cDCGAN)\cite{radford2015unsupervised,vishwakarma2020comparative} trained on the TCGA axial slices. The model takes a 100-dimensional Gaussian noise vector $z$ and a binary tumour-presence label $y$, and produces a $128\!\times\!128$ grayscale image together with a paired segmentation-mask channel. The generator $G(z|y)$ is composed of strided transposed convolutional layers each followed by 2D batch normalisation and ReLU activations, terminating in a $\tanh$ output. The discriminator $D(x|y)$ uses strided convolutional layers with leaky-ReLU activations and 2D batch normalisation, terminating in a sigmoid output. Conditioning is implemented through label embeddings concatenated with $z$ in the generator and with the image features in the discriminator.
+
+\paragraph{braingen\_cGAN\_BraTS\_v1.} A cDCGAN with identical macro-architecture to the TCGA model, but extended to 18 conditional classes (tumour status $\times$ plane $\times$ anatomical location) and to a five-channel output (T1, T2, FLAIR, plus tumour mask, with one redundant channel used during training to stabilise gradient flow). Output resolution is $128\!\times\!128$.
+
+\paragraph{braingen\_WaveletGAN\_v1.} A two-stage wavelet-domain GAN designed to generate multi-contrast outputs at $256\!\times\!256$ resolution while keeping model size compact. The training images and masks are first decomposed using a single-level discrete wavelet transform, yielding five coarse approximation coefficient arrays (one per channel: T1, T1ce, T2, FLAIR, mask) and fifteen detail coefficient arrays (horizontal, vertical, and diagonal details per channel). A first cDCGAN generator $G_{1}$ produces the coarse coefficients from a noise vector and a class embedding; a second generator $G_{2}$ -- a U-Net with residual blocks and a spatial-attention bottleneck -- predicts the corresponding detail coefficients conditional on the coarse output. The two stages are trained simultaneously but independently. The final image is reconstructed via the inverse wavelet transform. The two-stage decomposition allows the first generator to concentrate on coarse anatomical structure and the second on high-frequency texture, which empirically reduces training instability on the available sample size. Figure~\ref{fig:wgan_workflow} illustrates the workflow and Figure~\ref{fig:wgan_fine_network} shows the U-Net detail predictor.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{Figures/Wgan process diag.pdf}
+    \caption{Wavelet GAN workflow (a) Data preparation from 3D volume to 2D slices and wavelet domain transformation (b) Model training (c) Image generation pipeline}
+    \label{fig:wgan_workflow}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.7\columnwidth]{Figures/unet.pdf}
+    \caption{Wavelet GAN fine detail predictor Unet architecture diagram}
+    \label{fig:wgan_fine_network}
+\end{figure}
+
+The first-stage discriminator $D_{1}$ is trained with the standard binary cross-entropy adversarial loss, while the first-stage generator $G_{1}$ is trained with a sum of adversarial loss and a weighted feature-matching loss
+\begin{equation}
+\mathcal{L}_{\text{feat}} = \sum_{l} \lambda_{l} \cdot \frac{1}{N_{l}} \sum_{i=1}^{N_{l}} \left( D^{(l)}\!\left(x_i^{\text{real}}, c_i\right) - D^{(l)}\!\left(x_i^{\text{fake}}, c_i\right) \right)^{2},
+\label{eq:feat_loss}
+\end{equation}
+where $D^{(l)}$ denotes the activations of the $l$-th internal layer of the discriminator, $\lambda_{l}$ is a non-negative weight, $N_{l}$ is the number of activations at layer $l$, $c_i$ is the conditional label, and $x_i^{\text{real}}$, $x_i^{\text{fake}}$ are paired real and generated samples. The second-stage detail predictor uses adversarial loss together with a weighted mean-squared-error term computed between predicted and ground-truth wavelet detail coefficients.
+
+\paragraph{braingen\_Diffuser\_v1.} A denoising diffusion implicit model (DDIM)\cite{ho2020denoising,song2021maximum} trained on individual BraTS slices (T1, T2, FLAIR) without conditional labels. A diffusion model is defined by a forward Markov chain that progressively adds Gaussian noise,
+\begin{equation}
+q(x_{t}\mid x_{t-1}) = \mathcal{N}\!\left(x_{t};\, \sqrt{1-\beta_{t}}\, x_{t-1},\, \beta_{t} \mathbf{I}\right), \quad t=1,\dots,T,
+\label{eq:diff_forward}
+\end{equation}
+and a parameterised reverse process
+\begin{equation}
+p_{\theta}(x_{t-1}\mid x_{t}) = \mathcal{N}\!\left(x_{t-1};\, \mu_{\theta}(x_{t},t),\, \Sigma_{\theta}(x_{t},t)\right),
+\label{eq:diff_reverse}
+\end{equation}
+in which a neural network (a U-Net) predicts the noise component $\epsilon_{\theta}(x_{t},t)$, from which the mean is recovered analytically as
+\begin{equation}
+\mu_{\theta}(x_{t},t) = \frac{1}{\sqrt{\alpha_{t}}}\!\left(x_{t} - \frac{\beta_{t}}{\sqrt{1-\bar{\alpha}_{t}}}\, \epsilon_{\theta}(x_{t},t)\right),
+\label{eq:diff_mean}
+\end{equation}
+where $\alpha_{t} = 1 - \beta_{t}$ and $\bar{\alpha}_{t} = \prod_{s=1}^{t} \alpha_{s}$. The DDIM\cite{song2021maximum} replaces the stochastic reverse step with a non-Markovian deterministic update
+\begin{equation}
+x_{t-1} = \sqrt{\bar{\alpha}_{t-1}}\, \hat{x}_{0}(x_{t}) + \sqrt{1 - \bar{\alpha}_{t-1} - \sigma_{t}^{2}}\, \frac{x_{t} - \sqrt{\bar{\alpha}_{t}}\, \hat{x}_{0}(x_{t})}{\sqrt{1 - \bar{\alpha}_{t}}} + \sigma_{t}\, \epsilon, \quad \epsilon\sim\mathcal{N}(\mathbf{0},\mathbf{I}),
+\label{eq:ddim}
+\end{equation}
+where $\hat{x}_{0}(x_{t}) = \left(x_{t} - \sqrt{1-\bar{\alpha}_{t}}\, \epsilon_{\theta}(x_{t},t)\right)/\sqrt{\bar{\alpha}_{t}}$ is the predicted denoised sample, $\sigma_{t} \geq 0$ controls the stochasticity (with $\sigma_{t}=0$ giving a fully deterministic trajectory), and the diffusion length $T$ during training can be decoupled from the sampling length, enabling generation with fewer than the training number of steps.
+
+\paragraph{\textcolor{red}{braingen\_CondDiffuser\_BraTS\_v1.}} \textcolor{red}{A conditional denoising diffusion probabilistic model\cite{ho2020denoising} with $\epsilon$-prediction, trained to synthesise FLAIR slices conditioned on a subject's own anatomy. Whereas braingen\_Diffuser\_v1 is unconditional, this model receives an eight-channel spatial conditioning tensor---the subject's co-registered T1-weighted slice, the tumour segmentation mask, and six probabilistic lobe maps from the ICBM452 atlas\cite{mazziotta2001probabilistic} warped into the SRI24\cite{rohlfing2010sri24} reference space---concatenated channel-wise with the noised FLAIR input to a U-Net denoiser (channel widths $128\!\to\!256\!\to\!384\!\to\!512$, self-attention at the coarsest scale). The atlas was registered once into SRI24 space with ANTs symmetric normalisation (SyN)\cite{avants2008syn} and reused across subjects, exploiting the fact that BraTS volumes are already mutually co-registered; per-subject anatomy therefore enters only through the T1 and mask channels. The forward and reverse diffusion processes follow \cref{eq:diff_forward,eq:diff_reverse,eq:diff_mean}: the FLAIR target is scaled to $[-1,1]$ while the conditioning channels are retained in $[0,1]$, and the network minimises the noise-prediction objective $\mathbb{E}_{t,x_{0},\epsilon}\lVert \epsilon - \epsilon_{\theta}(x_{t},t,c)\rVert_{2}^{2}$, where $c$ is the conditioning tensor. Optimisation used AdamW (learning rate $10^{-4}$), batch size 32, mixed-precision, and an exponential moving average (decay 0.999) of the weights for sampling. Slices were intensity-normalised per subject by the $[1,99]$ percentile of brain voxels and zero-padded from $240\!\times\!240$ to $256\!\times\!256$ (a power of two for the U-Net) rather than resampled. Generation uses 200 deterministic DDIM\cite{song2021ddim} steps.}
+
+\subsection*{Three-dimensional generative models}
+
+Two unconditional 3D cDCGANs (braingen gan3d BraTS 32 v1 and braingen gan3d BraTS 64 v1) were trained to generate T1 volumes at $32^{3}$ and $64^{3}$ voxel resolutions, respectively. The architectures are 3D analogues of the 2D models, with all 2D convolutions and transposed convolutions replaced by their 3D counterparts. The generator maps a 201-dimensional latent vector through five 3D transposed-convolution layers, with 3D batch normalisation and ReLU activations between layers and a sigmoid output. The discriminator processes the volume through five 3D convolutional layers with batch normalisation and leaky-ReLU activations, terminating in a sigmoid scalar. Training follows the standard non-saturating GAN objective:
+\begin{align}
+\mathcal{L}_{D} &= -\mathbb{E}_{\mathbf{x}\sim p_{\text{data}}}[\log D(\mathbf{x})] - \mathbb{E}_{\mathbf{z}\sim p_{\mathbf{z}}}[\log(1 - D(G(\mathbf{z})))], \label{eq:disc_loss}\\
+\mathcal{L}_{G} &= -\mathbb{E}_{\mathbf{z}\sim p_{\mathbf{z}}}[\log D(G(\mathbf{z}))]. \label{eq:gen_loss}
+\end{align}
+A 1:1 update ratio between $G$ and $D$ was used. To stabilise training, discriminator updates were skipped on batches where its real/fake accuracy already exceeded 95\%.
+
+\subsection*{Training configuration}
+
+All models were trained with PyTorch on NVIDIA GPUs (Titan~XP and V100, 12--16\,GB memory). Optimisation used the Adam optimiser ($\beta_{1}=0.5$, $\beta_{2}=0.999$) for the GAN-based models and AdamW with a cosine learning-rate schedule (500 warm-up steps) for the diffusion model. The diffusion model was trained with $T=1{,}000$ steps and sampled at inference with 50 DDIM steps. Standard data augmentations were applied: random horizontal flips ($p=0.5$), random $128\!\times\!128$ crops, and per-channel intensity normalisation to mean 0.5 and standard deviation 0.5. Convolutional weights were initialised from $\mathcal{N}(0,\,0.02^{2})$ and batch-norm scaling weights from $\mathcal{N}(1,\,0.02^{2})$. Gradient clipping (maximum norm 1.0) was applied to the diffusion model. Early stopping for the GAN models was performed by visual inspection of validation samples, while early stopping for the diffusion model used a 10-epoch patience on validation loss. Table~\ref{tab:training_config} reports the model-specific hyperparameters, parameter counts, and wall-clock training time.
+
+\begin{table*}[!t]
+\centering
+\footnotesize
+\caption{Training configuration and computational requirements for each released model. Training time is wall-clock time on the GPU listed; parameter counts are in millions (M).}
+\label{tab:training_config}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lccccccc}
+\toprule
+\textbf{Model} & \textbf{LR} & \textbf{Opt.} & \textbf{Batch} & \textbf{Epochs} & \textbf{Time (h)} & \textbf{Params (M)} & \textbf{GPU mem (GB)} \\
+\midrule
+braingen\_GAN\_TCGA\_v1        & 2e--4 & Adam  & 128 & 1{,}000  & $\sim$12 & 11.2 & 8 \\
+braingen\_cGAN\_BraTS\_v1      & 1e--4 & Adam  & 64  & 1{,}000  & $\sim$15 & 15.7 & 10 \\
+braingen\_WaveletGAN\_v1       & 1e--4 & Adam  & 64  & 800    & $\sim$14 & 16.3 & 10 \\
+braingen\_Diffuser\_v1         & 1e--4 & AdamW & 16  & 50     & $\sim$4  & 22.4 & 12 \\
+\textcolor{red}{braingen\_CondDiffuser\_BraTS\_v1} & \textcolor{red}{1e--4} & \textcolor{red}{AdamW} & \textcolor{red}{32} & \textcolor{red}{34} & \textcolor{red}{$\sim$30} & \textcolor{red}{85.3} & \textcolor{red}{89} \\
+braingen\_gan3d\_BraTS\_32\_v1 & 2e--4 & Adam  & 32  & 5{,}000  & $\sim$15 & 8.9  & 16 \\
+braingen\_gan3d\_BraTS\_64\_v1 & 2e--4 & Adam  & 32  & 10{,}000 & $\sim$15 & 12.3 & 16 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+%==============================================================
+\section*{Data Records}
+\label{sec:datarecords}
+
+All \emph{SOCR AI Bot} resources described in this Data Descriptor are deposited in a public
+\href{https://github.com/SOCR/Brain-Image-Generator}{GitHub}
+repository under a permissive open license.
+
+The repository contains the following top-level folders.
+\paragraph{\texttt{/models/}} Pre-trained model weight files in PyTorch \texttt{.pt} or \texttt{.pth} format, one subfolder per model:
+\begin{itemize}
+  \item \texttt{braingen\_GAN\_TCGA\_v1/}
+  \item \texttt{braingen\_cGAN\_BraTS\_v1/}
+  \item \texttt{braingen\_WaveletGAN\_v1/}
+  \item \texttt{braingen\_Diffuser\_v1/}
+  \item \textcolor{red}{\texttt{braingen\_CondDiffuser\_BraTS\_v1/}}
+  \item \texttt{braingen\_gan3d\_BraTS\_32\_v1/}
+  \item \texttt{braingen\_gan3d\_BraTS\_64\_v1/}
+\end{itemize}
+Each subfolder contains the generator and (where applicable) discriminator weights, a JSON metadata file describing the architecture and the conditioning vocabulary, and a Python script demonstrating sample generation.\\
+\paragraph{\texttt{/samples/}} Pre-generated synthetic image samples organised by model. For the 2D models, 1{,}000 samples per conditional class are provided as 16-bit PNG files at the model's native resolution. For each multi-contrast 2D model, the per-channel outputs (T1, T1ce, T2, FLAIR, and the tumour segmentation mask) are saved as separate files sharing a common filename stem. For the 3D models, 200 sample volumes per model are provided as compressed NIfTI files (\texttt{.nii.gz}) with isotropic spacing. File names encode the conditioning class and sample index (for example, \texttt{ax\_mid\_tumour\_0042\_t1.png}).\\
+\paragraph{\texttt{/metadata/}} A CSV file (\texttt{samples\_metadata.csv}) describing every synthetic image in \texttt{/samples/}. Columns include: \texttt{model}, \texttt{sample\_id}, \texttt{anatomical\_plane} (axial/sagittal/coronal), \texttt{location} (superior/middle/inferior, left/middle/right, or anterior/middle/posterior), \texttt{tumour\_present} (0/1), \texttt{contrast} (T1/T1ce/T2/FLAIR/mask), \texttt{resolution\_px}, \texttt{file\_path}, and \texttt{file\_format}.\\
+\paragraph{\texttt{/metrics/}} Numerical evaluation results in CSV format: per-model FID, SSIM, MSE, and PSNR with bootstrap 95\% confidence intervals on the held-out test partition. A separate file (\texttt{splits.csv}) lists the patient-level train/validation/test assignments used for both datasets.\\
+\paragraph{\texttt{/code/}} A mirror of the public source-code repository (also available on GitHub, see Code Availability) containing the model definitions, training scripts, evaluation pipeline, and the Shiny web application source.\\
+A complete tree of file paths, sizes, and MD5 checksums is provided as \texttt{file\_manifest.csv} at the repository root.
+
+%==============================================================
+\section*{Technical Validation}
+\label{sec:techval}
+
+\subsection*{Evaluation metrics}
+
+Four quantitative metrics were computed on the held-out test partition for each 2D model: Fr\'echet Inception Distance (FID)\cite{heusel2017gans}, Structural Similarity Index (SSIM)\cite{wang2004image}, Mean Squared Error (MSE), and Peak Signal-to-Noise Ratio (PSNR). For the 3D models, FID and a 3D extension of SSIM were computed analogously.
+
+\paragraph{Fr\'echet Inception Distance.}
+Given feature representations $\{x_i\}$ extracted from real images and $\{y_i\}$ from synthetic images using a pretrained Inception~v3 network\cite{heusel2017gans}, with empirical means $\mu_{x},\mu_{y}$ and covariances $\Sigma_{x},\Sigma_{y}$,
+\begin{equation}
+\text{FID}(x,y) = \lVert \mu_{x} - \mu_{y} \rVert_{2}^{2} + \mathrm{Tr}\!\left(\Sigma_{x} + \Sigma_{y} - 2\left(\Sigma_{x}\Sigma_{y}\right)^{1/2}\right),
+\label{eq:fid}
+\end{equation}
+where the matrix square root is computed via eigendecomposition. Lower FID indicates better match between the synthetic and real distributions. For the 2D models, FID was computed using all test images and an equal number of generated samples. For the 3D models, an analogous metric was computed using features extracted by a 3D Inception network pre-trained on volumetric medical imaging\cite{chen2019med3d}.
+
+\paragraph{Structural Similarity Index.}
+For paired real ($x$) and synthetic ($y$) images, SSIM\cite{wang2004image} is
+\begin{equation}
+\text{SSIM}(x,y) = \frac{(2\mu_{x}\mu_{y} + C_{1})(2\sigma_{xy} + C_{2})}{(\mu_{x}^{2} + \mu_{y}^{2} + C_{1})(\sigma_{x}^{2} + \sigma_{y}^{2} + C_{2})},
+\label{eq:ssim}
+\end{equation}
+with luminance, contrast, and structure components contributing multiplicatively, and stabilisation constants $C_{1} = (K_{1}L)^{2}$, $C_{2} = (K_{2}L)^{2}$ ($K_{1}=0.01$, $K_{2}=0.03$, $L$ the dynamic range of the pixel values). SSIM ranges from $-1$ to $1$; values closer to $1$ indicate higher perceptual similarity. SSIM was computed with the \texttt{skimage.metrics.structural\_similarity} implementation. For the conditional models, each generated image was paired with its real counterpart sharing the same conditioning class; for the unconditional diffusion model, each generated image was paired with its nearest-neighbour real image in the test set under SSIM. The reported value is the mean across all pairs with bootstrap 95\% confidence intervals.
+
+\paragraph{Mean Squared Error and Peak Signal-to-Noise Ratio.}
+MSE is the average squared pixel-wise difference,
+\begin{equation}
+\text{MSE} = \frac{1}{MN}\sum_{i=1}^{M}\sum_{j=1}^{N}\left[I_{\text{real}}(i,j) - I_{\text{gen}}(i,j)\right]^{2},
+\label{eq:mse}
+\end{equation}
+and PSNR is the logarithmic transform
+\begin{equation}
+\text{PSNR} = 10\,\log_{10}\!\left(\frac{\text{MAX}_{I}^{2}}{\text{MSE}}\right) \text{ (dB)},
+\label{eq:psnr}
+\end{equation}
+with $\text{MAX}_{I}=1$ for the normalised $[0,1]$ images. Higher PSNR indicates better fidelity; values from 25--35\,dB are typical for synthetic medical images. Both metrics are pixel-wise and complement the perceptual SSIM and distribution-level FID metrics.
+
+\subsection*{Quantitative results}
+
+Table~\ref{tab:metric_scores} reports the test-set metrics for the 2D models. Across all four metrics, the diffusion model (braingen\_Diffuser\_v1) consistently outperforms the GAN-based models, followed by braingen\_GAN\_TCGA\_v1; the wavelet-domain GAN trails on this benchmark. The pattern is consistent across the perceptual (SSIM, PSNR), distributional (FID), and pixel-wise (MSE) metrics, and is qualitatively consistent with visual inspection of the generated samples (Figs.~\ref{fig:tcga_results}--\ref{fig:diff_results}). For the 3D models, the $64^{3}$ generator yields visibly smoother volumetric reconstructions than the $32^{3}$ generator (Fig.~\ref{fig:3Dslices}), reflecting the trade-off between resolution and the model size that can be accommodated on commodity GPUs.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\columnwidth]{Figures/TCGA.pdf}
+    \caption{Braingen\_GAN\_TCGA\_v1 sample images (a) image without tumor (b) image without tumor (c) image with tumor (d) image with tumor}
+    \label{fig:tcga_results}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.45\columnwidth]{Figures/diffusion.pdf}
+    \caption{Samples generated using {\it{braingen\_diffuser\_BraTS\_v1}} }
+    \label{fig:diff_results}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.8\columnwidth]{Figures/3Dslices.pdf}
+    \caption{Generated 3D volume and slices along different orientations using \textit{braingen\_gan3d\_BraTS\_64\_v1} }
+    \label{fig:3Dslices}
+\end{figure}
+
+
+\begin{table}[!h]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{FID $\downarrow$} & \textbf{SSIM $\uparrow$} & \textbf{MSE $\downarrow$} & \textbf{PSNR $\uparrow$ (dB)} \\
+\midrule
+braingen\_WaveletGAN\_v1      & 1.50 & 0.68\,$\pm$\,0.12 & 0.032\,$\pm$\,0.008 & 26.3\,$\pm$\,2.1 \\
+braingen\_GAN\_TCGA\_v1       & 1.10 & 0.72\,$\pm$\,0.11 & 0.025\,$\pm$\,0.007 & 28.1\,$\pm$\,2.3 \\
+braingen\_Diffuser\_v1        & 0.91 & 0.76\,$\pm$\,0.10 & 0.019\,$\pm$\,0.006 & 29.8\,$\pm$\,2.0 \\
+\bottomrule
+\end{tabular}
+\caption{Quantitative evaluation metrics on the held-out test partition. Values are mean\,$\pm$\,standard deviation across paired generated--real comparisons. FID is computed at the distribution level using Inception v3 features rescaled and normalised for the brain MRI domain (see Methods); the reported values are therefore on a domain-adapted scale and should not be compared directly to FID values reported for natural-image benchmarks.}
+\label{tab:metric_scores}
+\end{table}
+
+\subsection*{Qualitative inspection}
+
+For braingen\_GAN\_TCGA\_v1, the generated mid-axial slices reproduce the overall brain outline and tumour location indicated by the conditioning label (Fig.~\ref{fig:tcga_results}). Fine soft-tissue texture is mildly blurred, but tumour masks are sharply delineated. For braingen\_cGAN\_BraTS\_v1, the 18-class conditioning produces visually distinct outputs across the three planes and locations (Fig.~\ref{fig:multigan_results}). Tumour conditioning is faithfully reflected in the corresponding mask channel, and the multiple contrasts highlight complementary anatomy and pathology, providing a richer multi-modal view than the single-contrast TCGA model.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\columnwidth]{Figures/multigan.pdf}
+    \caption{Sample images generated using Braingen\_cGAN\_Multicontrast\_BraTS\_v1 (a) Axial middle slice without tumor (b) Coronal back slice with tumor (c) Coronal middle slice without tumor (d) Axial middle slice without tumor (e) Sagittal left slice without tumor (f) Sagittal middle slice with tumor}
+    \label{fig:multigan_results}
+\end{figure}
+
+For braingen\_WaveletGAN\_v1, the additional T1ce channel and the higher $256\!\times\!256$ resolution provide finer apparent detail, but the wavelet decomposition path introduces some residual coarse-scale blur and mask noise (Fig.~\ref{fig:wgan_results}). A controlled ablation comparing the model's coarse coefficients against the real coarse coefficients (Fig.~\ref{fig:wgan_detail_comp}) localises the residual error primarily to the coarse-coefficient generator $G_{1}$: when the detail predictor $G_{2}$ is fed the real coarse coefficients, the predicted detail coefficients agree with the real detail coefficients to within a mean relative MSE of less than 10\%. This decomposition indicates that the dominant axis for future improvement is the coarse generator rather than the detail predictor.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.6\columnwidth]{Figures/wgan.pdf}
+    \caption{Samples generated using Braingen\_WaveletGAN\_Multicontrast\_BraTS\_v1 (a) Axial inferior slice without tumor (b) Axial middle slice with tumor (c) Coronal front slice with tumor (d) Sagittal right slice with tumor}
+    \label{fig:wgan_results}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.6\columnwidth]{Figures/wgan_detail_comp.pdf}
+    \caption{Coarse and fine details prediction for (a) Model generated coarse detail coefficients (b) Real image coarse detail coefficients }
+    \label{fig:wgan_detail_comp}
+\end{figure}
+
+For braingen\_Diffuser\_v1, despite being unconditional, the model produces the visually highest-fidelity outputs (Fig.~\ref{fig:diff_results}), consistent with its lowest FID score in Table~\ref{tab:metric_scores}. Sampling cost is the main practical trade-off: a single image generated on a single CPU thread requires approximately 1 minute, whereas on an NVIDIA Titan~XP large batches are produced in seconds. For braingen\_gan3d\_BraTS\_64\_v1, the synthetic volumes display gross anatomical consistency across orthogonal re-slicings (Fig.~\ref{fig:3Dslices}), although fine soft-tissue contrast is limited by the lower spatial resolution.
+
+\textcolor{red}{For braingen\_CondDiffuser\_BraTS\_v1, the model reproduces subject-specific anatomy (ventricular morphology, cortical folding, grey/white-matter contrast) and tumour location while retaining stochastic texture diversity across independent samples of the same conditioning (Fig.~\ref{fig:conddiff_results}). An ablation on the conditioning tensor isolates the value of the anatomical prior: with only the tumour mask and atlas as conditioning, the $\epsilon$-prediction training loss plateaus at $\approx 6\times10^{-3}$ irrespective of model capacity or training length, whereas adding the subject's own T1 channel lowers the plateau to $\approx 4.2\times10^{-3}$ (a $\sim$30\% reduction). This is consistent with an information-theoretic reading in which the attainable noise-prediction error is lower-bounded by the conditional variance of the target given the conditioning: weakly-determining conditioning imposes an irreducible floor that stronger, subject-specific conditioning relaxes. Pixelwise fidelity to the paired real slice, computed over the brain region on 100 held-out slices (one stochastic sample each, 200 DDIM steps), was PSNR $17.1\pm2.8$\,dB and SSIM $0.40\pm0.13$, and the generated backgrounds were essentially noise-free (background signal-to-noise ratio $66.6\pm35.5$). Because each output is a single stochastic draw that deliberately does not copy the reference, these full-reference scores are expected to fall below those of the deterministic translation models in Table~\ref{tab:metric_scores} and are reported as conservative fidelity bounds.}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\columnwidth]{Figures/conddiff_eval_grid.png}
+    \caption{\textcolor{red}{Samples from \textit{braingen\_CondDiffuser\_BraTS\_v1}. Leftmost panel: a held-out real FLAIR slice; remaining panels: independent synthetic samples generated from the same anatomical conditioning (subject T1 + tumour mask + atlas). Per-panel PSNR, SSIM, and background SNR are annotated. All samples share the subject's gross anatomy and tumour location while differing in fine texture, illustrating conditioned generation rather than reconstruction.}}
+    \label{fig:conddiff_results}
+\end{figure}
+
+%==============================================================
+\section*{Usage Notes}
+\label{sec:usage}
+
+\subsection*{Accessing the data and models}
+
+The simplest entry point for non-programmatic reuse is the interactive SOCR AI Bot synthetic brain generator web application, available at \url{https://socr.umich.edu/GAIM/}. The application allows users to select a model, specify conditioning parameters (anatomical plane, slice location, tumour presence, contrast), and generate synthetic images directly in a standard browser without local installation. Generated images and segmentation masks can be downloaded. Generation latency on the server is below 1\,s for the conditional 2D GANs and approximately 1\,min for the diffusion model on CPU, while access to a local GPU substantially reduces these times.
+
+For programmatic reuse, the released model weights can be downloaded from the data repository (see Data Records and Data Availability) and used through the provided PyTorch inference scripts. The accompanying README files document the conditioning vocabulary, expected input ranges, and output formats. The Shiny application source code is included in the \texttt{/code/} folder for users who wish to deploy a private instance of the interface.
+
+\subsection*{Recommended applications}
+
+The released artefacts are intended to support: (i) data augmentation for downstream brain MRI analysis tasks such as tumour segmentation, classification, or domain-adaptation studies; (ii) teaching and clinical training, including hands-on exercises for radiology trainees who need controlled exposure to varied phenotypes; and (iii) AI methodology development, in particular as a benchmark for new generative modelling, synthetic-real domain gap, and privacy-preserving learning techniques.
+
+\subsection*{Limitations}
+
+Users should consider the following limitations when interpreting and reusing the data.
+\begin{itemize}
+  \item \emph{Phenotype coverage.} The models are trained on tumour-focused datasets. They do not represent stroke, multiple sclerosis, Alzheimer's disease, Parkinson's disease, or traumatic brain injury, and should not be used to generate data for these conditions.
+  \item \emph{Conditioning vocabulary.} The current models condition on tumour status, slice plane, and location only. They do not condition on patient age, sex, ancestry, comorbidities, tumour grade, tumour sub-type, or longitudinal stage.
+  \item \emph{Acquisition heterogeneity.} The TCGA and BraTS datasets follow relatively standardised acquisition protocols. Models trained on these data may underrepresent the heterogeneity of scanner manufacturers, field strengths, and acquisition sequences encountered in real-world multi-site practice.
+  \item \emph{Anatomical scope.} The models are specific to brain imaging and would require retraining and architectural adaptation for other anatomical regions.
+  \item \emph{FID scale.} The FID values reported in Table~\ref{tab:metric_scores} use Inception~v3 features after a domain-specific rescaling appropriate for medical imaging; they are therefore on a different absolute scale than FID values reported for natural-image generation benchmarks and should be compared only across the models reported here. Standard (un-rescaled) FID values can be regenerated from the released code if direct comparison to natural-image literature is required.
+  \item \emph{Soft-tissue detail.} Visual inspection (Figs.~\ref{fig:tcga_results}--\ref{fig:diff_results}) indicates some residual blurring of fine soft-tissue texture, particularly at the lowest resolutions and for the wavelet-domain GAN. Downstream tasks that rely on sub-millimetre texture (for example, fine cortical or subcortical analyses) may not be well served by the current release.
+  \item \emph{Synthetic-data fidelity for AI training.} Synthetic data can complement but not replace real data; AI models trained exclusively on synthetic samples are not guaranteed to generalise to real clinical inputs and should be validated independently on real held-out cohorts before any deployment.
+\end{itemize}
+
+Planned future extensions include (i) a multi-contrast 3D conditional generator, (ii) extension of the wavelet-domain architecture to volumetric data, and (iii) the addition of demographic and clinical conditioning variables to broaden phenotype coverage.
+
+%==============================================================
+\section*{Data Availability}
+\label{sec:dataavail}
+
+The \emph{SOCR AI Bot} synthetic brain MRI samples, trained model weights, evaluation metrics, and metadata described in this Data Descriptor are deposited at the SOCR data portal under the \emph{SOCR Synthetic Brain Generator} collection (\url{https://socr.umich.edu/GAIM/}) and at a public, persistent-identifier repository (Zenodo/Figshare; DOI to be assigned at acceptance) with the folder structure described in the Data Records section. The two input datasets used for model training are publicly available from their original sources: The Cancer Genome Atlas brain MRI collection (\url{https://www.cancer.gov/ccg/research/genome-sequencing/tcga})\cite{cancergenomeatlas2013} and the Brain Tumor Segmentation challenge dataset (\url{https://www.med.upenn.edu/cbica/brats2020/data.html})\cite{bakas2017advancing,bakas2018identifying,menze2015multimodal}. No identifiable patient data are redistributed by the \emph{SOCR AI Bot}.
+
+%==============================================================
+\section*{Code Availability}
+\label{sec:codeavail}
+
+All source code used to preprocess the data, train the models, generate synthetic samples, compute the evaluation metrics, and run the web application is available under an open-source license at \url{https://github.com/SOCR/GAIM} (also mirrored in the \texttt{/code/} folder of the data repository). The codebase is implemented in Python~3.10 with PyTorch~2.x. Specific package versions are pinned in \texttt{requirements.txt}; the inference pipeline additionally requires \texttt{scikit-image}, \texttt{numpy}, \texttt{scipy}, \texttt{nibabel} (for 3D NIfTI I/O), and \texttt{pillow}. The web application is implemented in R using the Shiny framework with reticulate-based bridges to the PyTorch inference back-end. Training was performed on NVIDIA Titan~XP and V100 GPUs; the released inference scripts run on either CPU or CUDA-capable GPUs. The exact hyperparameter values and command-line invocations used to produce the released models are recorded as YAML configuration files in \texttt{/code/configs/}.
+
+%==============================================================
+\section*{Author Contributions}
+
+I.D.D.\ conceived the project and provided overall supervision. A.S.\ designed and implemented the wavelet-domain GAN, the diffusion model, and the 3D GANs, performed the training and validation experiments, and led the manuscript writing. R.K. and A.L.\ contributed to the conditional GAN implementations and the web application development. \textcolor{red}{A.L.\ additionally designed and implemented the anatomy-conditioned diffusion model (braingen\_CondDiffuser\_BraTS\_v1), including the atlas-to-SRI24 registration, the conditioning pipeline, and the associated training and evaluation experiments.} Y.S.\ contributed to dataset preprocessing, the evaluation pipeline, and metric computation. S.M.\ contributed to the validation methodology, statistical analysis, and manuscript revision. I.D.D.\ and S.M.\ secured the funding. All authors wrote, reviewed, and approved the final manuscript.
+
+%==============================================================
+\section*{Competing Interests}
+
+The authors declare no competing interests.
+
+%==============================================================
+\section*{Acknowledgements}
+
+The authors thank colleagues at the Statistics Online Computational Resource (SOCR), the University of Michigan, and the wider open-science community for suggestions, ideas, encouragement, and computational resources.
+
+%==============================================================
+\section*{Funding}
+
+This work was supported in part by the U.S.\ National Science Foundation (grants 2611649, 1916425, 1734853, 1636840, and 1416953) and by the U.S.\ National Institutes of Health (grants UL1TR002240, R01CA233487, R01MH121079, R01MH126137, and T32GM141746. U54DE035412). The funders had no role in study design, data collection and analysis, the decision to publish, or the preparation of the manuscript.
+
+% =========================================================================
+% NEW BIB ENTRIES (Alex) — add these three to references.bib so the
+% \cite{} calls in the CondDiffuser Methods paragraph resolve:
+% @article{rohlfing2010sri24, author={Rohlfing, Torsten and Zahr, Natalie M. and Sullivan, Edith V. and Pfefferbaum, Adolf}, title={The {SRI24} multichannel atlas of normal adult human brain structure}, journal={Human Brain Mapping}, volume={31}, number={5}, pages={798--819}, year={2010}, doi={10.1002/hbm.20906}}
+% @article{mazziotta2001probabilistic, author={Mazziotta, John and Toga, Arthur and Evans, Alan and others}, title={A probabilistic atlas and reference system for the human brain: International Consortium for Brain Mapping ({ICBM})}, journal={Philosophical Transactions of the Royal Society B}, volume={356}, number={1412}, pages={1293--1322}, year={2001}, doi={10.1098/rstb.2001.0915}}
+% @article{avants2008syn, author={Avants, Brian B. and Epstein, Charles L. and Grossman, Murray and Gee, James C.}, title={Symmetric diffeomorphic image registration with cross-correlation: Evaluating automated labeling of elderly and neurodegenerative brain}, journal={Medical Image Analysis}, volume={12}, number={1}, pages={26--41}, year={2008}, doi={10.1016/j.media.2007.06.004}}
+% =========================================================================
+
+%==============================================================
+% References
+%==============================================================
+
+\newpage
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}
