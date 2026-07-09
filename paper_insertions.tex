@@ -1,0 +1,219 @@
+% =====================================================================
+% paper_insertions.tex — LaTeX blocks to paste into the SOCR AI Bot
+% Data Descriptor (Overleaf). Each block is marked with WHERE it goes.
+% British spelling used throughout to match the existing manuscript
+% (tumour / normalisation / optimiser / artefact / modelling).
+%
+% INTEGRITY NOTES (read first):
+%  - All numbers are from Alex's real runs. No FID is claimed (not computed).
+%  - Do NOT add Alex's row to Table 3 (tab:metric_scores): its PSNR/SSIM use a
+%    per-slice paired protocol and are not comparable to the class-paired numbers
+%    there. A separate results paragraph is provided instead.
+%  - Coordinate with the lead author (A. Shankar) before inserting.
+%  - Values marked [VERIFY] / [TBD] must be filled from the current logs/code.
+% =====================================================================
+
+
+% ---------------------------------------------------------------------
+% INSERT 1 — DATA RECORDS: replace the \textcolor{red}{...} block
+% (finalised prose; adds Alex's model subfolder, flagged for release status)
+% ---------------------------------------------------------------------
+The repository contains the following top-level folders.
+
+\paragraph{\texttt{/models/}} Pre-trained model weight files in PyTorch \texttt{.pt} or
+\texttt{.pth} format, one subfolder per model:
+\begin{itemize}
+  \item \texttt{braingen\_GAN\_TCGA\_v1/}
+  \item \texttt{braingen\_cGAN\_BraTS\_v1/}
+  \item \texttt{braingen\_WaveletGAN\_v1/}
+  \item \texttt{braingen\_Diffuser\_v1/}
+  \item \texttt{braingen\_CondDiffuser\_BraTS\_v1/}  % [VERIFY release status]
+  \item \texttt{braingen\_gan3d\_BraTS\_32\_v1/}
+  \item \texttt{braingen\_gan3d\_BraTS\_64\_v1/}
+\end{itemize}
+Each subfolder contains the generator and (where applicable) discriminator weights, a JSON
+metadata file describing the architecture and the conditioning vocabulary, and a Python
+script demonstrating sample generation.
+
+\paragraph{\texttt{/samples/}} Pre-generated synthetic image samples organised by model.
+For the 2D models, 1{,}000 samples per conditional class are provided as 16-bit PNG files at
+the model's native resolution. For each multi-contrast 2D model, the per-channel outputs
+(T1, T1ce, T2, FLAIR, and the tumour segmentation mask) are saved as separate files sharing a
+common filename stem. For the 3D models, 200 sample volumes per model are provided as
+compressed NIfTI files (\texttt{.nii.gz}) with isotropic spacing. File names encode the
+conditioning class and sample index (for example, \texttt{ax\_mid\_tumour\_0042\_t1.png}).
+
+\paragraph{\texttt{/metadata/}} A CSV file (\texttt{samples\_metadata.csv}) describing every
+synthetic image in \texttt{/samples/}. Columns include: \texttt{model}, \texttt{sample\_id},
+\texttt{anatomical\_plane} (axial/sagittal/coronal), \texttt{location}
+(superior/middle/inferior, left/middle/right, or anterior/middle/posterior),
+\texttt{tumour\_present} (0/1), \texttt{contrast} (T1/T1ce/T2/FLAIR/mask),
+\texttt{resolution\_px}, \texttt{file\_path}, and \texttt{file\_format}.
+
+\paragraph{\texttt{/metrics/}} Numerical evaluation results in CSV format: per-model FID,
+SSIM, MSE, and PSNR with bootstrap 95\% confidence intervals on the held-out test partition.
+A separate file (\texttt{splits.csv}) lists the patient-level train/validation/test
+assignments used for both datasets.
+
+\paragraph{\texttt{/code/}} A mirror of the public source-code repository (also available on
+GitHub, see Code Availability) containing the model definitions, training scripts, evaluation
+pipeline, and the Shiny web application source.
+
+A complete tree of file paths, sizes, and MD5 checksums is provided as
+\texttt{file\_manifest.csv} at the repository root.
+
+
+% ---------------------------------------------------------------------
+% INSERT 2 — USAGE NOTES: replace the \textcolor{red}{To Finalize ...} block
+% ---------------------------------------------------------------------
+For programmatic reuse, the released model weights can be downloaded from the data repository
+(see Data Records and Data Availability) and loaded through the provided PyTorch inference
+scripts. Each model subfolder includes a self-contained example that instantiates the network,
+loads the weights, accepts the conditioning arguments documented in the accompanying
+\texttt{README}, and writes generated images (and, where applicable, the paired segmentation
+mask) to disk. The README files specify the conditioning vocabulary, the expected input
+intensity ranges, and the output tensor layout for each model. The Shiny application source is
+included in the \texttt{/code/} folder for users who wish to deploy a private instance of the
+interface behind their own compute.
+
+
+% ---------------------------------------------------------------------
+% INSERT 3 — TABLE 1 (tab:sota_comparison): new row in the
+% "Models released with the SOCR AI Bot" block (after braingen_Diffuser_v1)
+% ---------------------------------------------------------------------
+braingen CondDiffuser BraTS\_v1 & 2025 & Conditional DDPM/DDIM ($\epsilon$-pred, U-Net) & $256\!\times\!256$ (2D) & BraTS 2023 GLI ($n\!=\!1{,}252$) & FLAIR (cond.\ on T1+mask+atlas) & PSNR, SSIM, bgSNR, loss-floor ablation & Yes \\
+
+
+% ---------------------------------------------------------------------
+% INSERT 4 — TABLE 2 (tab:training_config): new row
+% [TBD] cells: fill Params via
+%   python -c "from src.model import build_model; print(sum(p.numel() for p in build_model().parameters())/1e6)"
+% and Time (h) + Epochs from the full-data training log.
+% NOTE: trained on an NVIDIA RTX PRO 6000 (96 GB), unlike the V100/Titan XP rows.
+% ---------------------------------------------------------------------
+braingen\_CondDiffuser\_BraTS\_v1 & 1e--4 & AdamW & 32 & 20 & \textit{[TBD]} & \textit{[TBD]} & 89 \\
+
+
+% ---------------------------------------------------------------------
+% INSERT 5 — METHODS: new \paragraph after braingen_Diffuser_v1, in
+% "Two-dimensional generative models"
+% ---------------------------------------------------------------------
+\paragraph{braingen\_CondDiffuser\_BraTS\_v1.} A conditional denoising diffusion probabilistic
+model\cite{ho2020denoising} with $\epsilon$-prediction, trained to synthesise FLAIR slices
+conditioned on a subject's own anatomy. Whereas braingen\_Diffuser\_v1 is unconditional, this
+model receives an eight-channel spatial conditioning tensor---the subject's co-registered
+T1-weighted slice, the tumour segmentation mask, and six probabilistic lobe maps from the
+ICBM452 atlas\cite{mazziotta2001probabilistic} warped into the SRI24\cite{rohlfing2010sri24}
+reference space---concatenated channel-wise with the noised FLAIR input to a U-Net denoiser
+(channel widths $128\!\to\!256\!\to\!384\!\to\!512$, self-attention at the coarsest scale). The
+atlas was registered once into SRI24 space with ANTs symmetric normalisation
+(SyN)\cite{avants2008syn} and reused across subjects, exploiting the fact that BraTS volumes
+are already mutually co-registered; per-subject anatomy therefore enters only through the T1
+and mask channels. The forward and reverse diffusion processes follow
+\cref{eq:diff_forward,eq:diff_reverse,eq:diff_mean}: the FLAIR target is scaled to $[-1,1]$
+while the conditioning channels are retained in $[0,1]$, and the network minimises the
+noise-prediction objective
+$\mathbb{E}_{t,x_{0},\epsilon}\lVert \epsilon - \epsilon_{\theta}(x_{t},t,c)\rVert_{2}^{2}$,
+where $c$ is the conditioning tensor. Optimisation used AdamW (learning rate $10^{-4}$), batch
+size 32, mixed-precision, and an exponential moving average (decay 0.999) of the weights for
+sampling. Slices were intensity-normalised per subject by the $[1,99]$ percentile of brain
+voxels and zero-padded from $240\!\times\!240$ to $256\!\times\!256$ (a power of two for the
+U-Net) rather than resampled. Generation uses 200 deterministic DDIM\cite{song2021ddim} steps.
+
+
+% ---------------------------------------------------------------------
+% INSERT 6 — TECHNICAL VALIDATION: new \paragraph in "Qualitative inspection"
+% (or as its own short subsection). Leads with the informational-floor finding.
+% ---------------------------------------------------------------------
+\paragraph{Anatomical conditioning and the noise-prediction floor.} On the BraTS test
+partition, braingen\_CondDiffuser\_BraTS\_v1 reproduces subject-specific anatomy (ventricular
+morphology, cortical folding, grey/white-matter contrast) and tumour location while retaining
+stochastic texture diversity across independent samples of the same conditioning
+(\cref{fig:conddiff_results}). An ablation on the conditioning tensor isolates the value of the
+anatomical prior: with only the tumour mask and atlas as conditioning, the $\epsilon$-prediction
+training loss plateaus at $\approx 6\times10^{-3}$ irrespective of model capacity or training
+length, whereas adding the subject's own T1 channel lowers the plateau to
+$\approx 4.2\times10^{-3}$ (a $\sim$30\% reduction). This is consistent with an
+information-theoretic reading in which the attainable noise-prediction error is lower-bounded by
+the conditional variance of the target given the conditioning: weakly-determining conditioning
+imposes an irreducible floor that stronger, subject-specific conditioning relaxes. Pixelwise
+fidelity to the paired real slice, computed over the brain region on 100 held-out slices (one
+stochastic sample each, 200 DDIM steps), was PSNR $17.1\pm2.8$\,dB and SSIM $0.40\pm0.13$, and
+the generated backgrounds were essentially noise-free (background signal-to-noise ratio
+$66.6\pm35.5$). Because each output is a single stochastic draw that deliberately does not copy
+the reference, these full-reference scores are expected to fall below those of deterministic
+translation models and are reported as conservative fidelity bounds rather than as directly
+comparable to \cref{tab:metric_scores}.
+
+
+% ---------------------------------------------------------------------
+% INSERT 7 — FIGURE (Technical Validation). Copy Alex's grid into Overleaf's
+% Figures/ as conddiff_eval_grid.png  (source: eval_grid_20260626_133819.png)
+% ---------------------------------------------------------------------
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.9\columnwidth]{Figures/conddiff_eval_grid.png}
+    \caption{Samples from \textit{braingen\_CondDiffuser\_BraTS\_v1}. Leftmost panel: a
+    held-out real FLAIR slice; remaining panels: independent synthetic samples generated from
+    the same anatomical conditioning (subject T1 + tumour mask + atlas). Per-panel PSNR, SSIM,
+    and background SNR are annotated. All samples share the subject's gross anatomy and tumour
+    location while differing in fine texture, illustrating conditioned generation rather than
+    reconstruction.}
+    \label{fig:conddiff_results}
+\end{figure}
+
+
+% ---------------------------------------------------------------------
+% INSERT 8 — AUTHOR CONTRIBUTIONS: replace the A.L. sentence
+% ---------------------------------------------------------------------
+R.K.\ contributed to the conditional GAN implementations and the web application development.
+A.L.\ designed and implemented the anatomy-conditioned diffusion model
+(braingen\_CondDiffuser\_BraTS\_v1), including the atlas-to-SRI24 registration, the
+conditioning pipeline, and the associated training and evaluation experiments.
+
+
+% ---------------------------------------------------------------------
+% INSERT 9 — references.bib: add these three entries (new cites used above)
+% ---------------------------------------------------------------------
+@article{rohlfing2010sri24,
+  author  = {Rohlfing, Torsten and Zahr, Natalie M. and Sullivan, Edith V. and Pfefferbaum, Adolf},
+  title   = {The {SRI24} multichannel atlas of normal adult human brain structure},
+  journal = {Human Brain Mapping},
+  volume  = {31}, number = {5}, pages = {798--819}, year = {2010},
+  doi     = {10.1002/hbm.20906}
+}
+
+@article{mazziotta2001probabilistic,
+  author  = {Mazziotta, John and Toga, Arthur and Evans, Alan and others},
+  title   = {A probabilistic atlas and reference system for the human brain: International Consortium for Brain Mapping ({ICBM})},
+  journal = {Philosophical Transactions of the Royal Society B},
+  volume  = {356}, number = {1412}, pages = {1293--1322}, year = {2001},
+  doi     = {10.1098/rstb.2001.0915}
+}
+
+@article{avants2008syn,
+  author  = {Avants, Brian B. and Epstein, Charles L. and Grossman, Murray and Gee, James C.},
+  title   = {Symmetric diffeomorphic image registration with cross-correlation: Evaluating automated labeling of elderly and neurodegenerative brain},
+  journal = {Medical Image Analysis},
+  volume  = {12}, number = {1}, pages = {26--41}, year = {2008},
+  doi     = {10.1016/j.media.2007.06.004}
+}
+
+
+% ---------------------------------------------------------------------
+% INSERT 10 (OPTIONAL) — ABSTRACT: extend the model enumeration.
+% Replace "...a denoising diffusion implicit model, and two 3D conditional GANs"
+% with:
+% ---------------------------------------------------------------------
+% ...an unconditional denoising diffusion implicit model, an anatomy-conditioned
+% diffusion model that synthesises FLAIR conditioned on a subject's T1, tumour mask,
+% and a probabilistic lobe atlas, and two 3D conditional GANs...
+
+
+% ---------------------------------------------------------------------
+% EXISTING BUGS SPOTTED (fix in the current manuscript, not additions):
+%  (a) Methods cites \cite{song2021maximum} twice, but the bib key is song2021ddim.
+%      -> change song2021maximum to song2021ddim (or add the alias to references.bib).
+%  (b) Table 2 (tab:training_config): column spec is {lcccccccc} = 9 columns but
+%      every row has 8 fields -> a trailing empty column. Drop one 'c' for cleanliness.
+% ---------------------------------------------------------------------
