@@ -85,16 +85,13 @@ braingen CondDiffuser BraTS\_v1 & 2025 & Conditional DDPM/DDIM ($\epsilon$-pred,
 
 
 % ---------------------------------------------------------------------
-% INSERT 4 — TABLE 2 (tab:training_config): new row
-% Params = 85.3 M (confirmed: build_model() -> 85.261185 M).
-% Fill [epochs] and [time h] from the training log of the DEPLOYED model
-% (the run that produced models/diffusion_ema.pt) so the table matches the
-% run whose metrics/loss are cited in Inserts 5-6. Commands:
-%   log=$(ls -t outputs/train_*.log | head -1); grep -c '^epoch' "$log"   # epochs
-%   sacct -j <jobid> --format=Elapsed,State                               # wall-clock
+% INSERT 4 — TABLE 2 (tab:training_config): new row (ALL VALUES FILLED)
+% Deployed model = job 52208104 (full data): 34 epochs, 30 h wall-clock
+% (State=TIMEOUT at the --time=30h limit; per-epoch checkpoints kept).
+% Params = 85.3 M (build_model() -> 85.261185 M).
 % NOTE: trained on an NVIDIA RTX PRO 6000 (96 GB), unlike the V100/Titan XP rows.
 % ---------------------------------------------------------------------
-braingen\_CondDiffuser\_BraTS\_v1 & 1e--4 & AdamW & 32 & \textit{[epochs]} & \textit{[time\,h]} & 85.3 & 89 \\
+braingen\_CondDiffuser\_BraTS\_v1 & 1e--4 & AdamW & 32 & 34 & $\sim$30 & 85.3 & 89 \\
 
 
 % ---------------------------------------------------------------------
