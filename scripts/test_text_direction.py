@@ -119,21 +119,26 @@ def main():
     print("  If it merely shifts by a small amount in the SAME direction, the mask is")
     print("  winning and the text is only perturbing global appearance.")
 
-    # ---------------- figure: generations on top, difference maps below ----------------
-    diffs = [np.abs(g - outs[0]) for g in outs]
-    vmax  = max(float(d.max()) for d in diffs[1:]) if len(diffs) > 1 else 1.0
+    # ---------------- figure: generations on top, SIGNED difference maps below ----------------
+    # SIGNED, not absolute. np.abs() would discard the sign, and the sign is exactly what
+    # distinguishes "signal was ADDED here" from "signal was REMOVED here". A genuine
+    # relocation looks like a BLUE blob (lesion left) plus a RED blob (lesion arrived).
+    diffs = [g - outs[0] for g in outs]
+    # One symmetric limit shared by every panel, so 0 lands exactly on the white midpoint
+    # of the diverging colormap and the panels stay comparable to each other.
+    vmax = max(float(np.abs(d).max()) for d in diffs[1:]) if len(diffs) > 1 else 1.0
     n = len(variants)
     fig, ax = plt.subplots(2, n, figsize=(3.6 * n, 7.4))
     for k, ((label, p), g, d) in enumerate(zip(variants, outs, diffs)):
         ax[0, k].imshow(g.T, cmap="gray", origin="lower", vmin=0, vmax=1)
         ax[0, k].set_title(f"{label}\nasym {rows[k][1]:+.4f}", fontsize=9)
         ax[0, k].axis("off")
-        im = ax[1, k].imshow(d.T, cmap="inferno", origin="lower", vmin=0, vmax=vmax)
-        ax[1, k].set_title(f"|diff vs TRUE|  max {d.max():.2f}", fontsize=9)
+        im = ax[1, k].imshow(d.T, cmap="bwr", origin="lower", vmin=-vmax, vmax=+vmax)
+        ax[1, k].set_title(f"signed diff vs TRUE\nmin {d.min():+.2f}  max {d.max():+.2f}", fontsize=9)
         ax[1, k].axis("off")
     fig.colorbar(im, ax=ax[1, :].tolist(), fraction=0.02)
-    fig.suptitle(f"top: generations   bottom: where the caption changed things "
-                 f"(guidance {guidance}, shared scale 0-{vmax:.2f})", fontsize=10)
+    fig.suptitle(f"top: generations    bottom: RED = caption ADDED signal, BLUE = caption REMOVED it "
+                 f"(guidance {guidance}, scale +/-{vmax:.2f})", fontsize=10)
     out = f"outputs/text_direction_{datetime.now():%Y%m%d_%H%M%S}.png"
     plt.savefig(out, dpi=110, bbox_inches="tight"); print("\nsaved", out)
 
