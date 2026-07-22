@@ -16,7 +16,9 @@ Two instruments:
 Orientation reminder (verified earlier via nib.aff2axcodes -> ('L','P','S')):
 axis 0 increases toward the patient's LEFT, and the midline sits at pixel 128.
 
-Usage:  python scripts/test_text_direction.py [guidance]     # default 3.0
+Usage:  python scripts/test_text_direction.py [guidance] [checkpoint]
+        python scripts/test_text_direction.py 3.0                              # first text model
+        python scripts/test_text_direction.py 3.0 models/text_dual_ema.pt      # dual-dropout model
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -47,10 +49,12 @@ def swap_lobe(cap):
 
 def main():
     guidance = float(sys.argv[1]) if len(sys.argv) > 1 else 3.0
+    ckpt     = sys.argv[2] if len(sys.argv) > 2 else "models/text_diffusion_ema.pt"
 
     model = build_text_model().to(DEVICE)
-    model.load_state_dict(torch.load("models/text_diffusion_ema.pt", map_location=DEVICE))
+    model.load_state_dict(torch.load(ckpt, map_location=DEVICE))
     model.eval()
+    print(f"checkpoint: {ckpt}")
     tokenizer    = CLIPTokenizer.from_pretrained(CLIP_ID)
     text_encoder = CLIPTextModel.from_pretrained(CLIP_ID).to(DEVICE).eval()
     sched = DDIMScheduler(num_train_timesteps=1000, clip_sample=True); sched.set_timesteps(STEPS)
