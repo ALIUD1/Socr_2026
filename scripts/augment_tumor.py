@@ -22,7 +22,8 @@ import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
 from diffusers import DDIMScheduler
 from src.model import build_model
 
-DEVICE, STEPS = "cuda", 200
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"   # falls back to CPU (slow) if no GPU node
+STEPS  = 200
 LOBES   = ["frontal", "parietal", "temporal", "occipital", "cerebellum", "insula"]
 ATLAS0  = 3                 # in the 9-channel stack, atlas lobe k lives at channel 3+k
 CORE_R, EDEMA_R = 9, 20     # blob radii in pixels (1 mm/px) -> ~18mm core, ~40mm lesion
@@ -49,6 +50,7 @@ def synth_mask(atlas_lobe, brain, rng):
     return m, (int(c0), int(c1))
 
 def main():
+    print(f"device: {DEVICE}" + ("  (no GPU -> this will be slow)" if DEVICE == "cpu" else ""))
     lobe = sys.argv[1] if len(sys.argv) > 1 else random.choice(LOBES)
     li   = LOBES.index(lobe)                         # ValueError here = you typed a lobe that doesn't exist
     rng  = np.random.default_rng(0)                  # seeded -> reproducible; change seed for variety
