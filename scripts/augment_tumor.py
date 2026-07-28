@@ -27,16 +27,20 @@ STEPS  = int(os.environ.get("AUG_STEPS", "200"))          # e.g. AUG_STEPS=60 fo
 LOBES   = ["frontal", "parietal", "temporal", "occipital", "cerebellum", "insula"]
 ATLAS0  = 3                 # in the 9-channel stack, atlas lobe k lives at channel 3+k
 CORE_R, EDEMA_R = 9, 20     # blob radii in pixels (1 mm/px) -> ~18mm core, ~40mm lesion
-PROB_TH = 0.3               # "inside this lobe" = atlas probability above this
+PROB_TH   = 0.4             # "inside this lobe" = atlas probability above this
+MIN_BRAIN = 15000           # require a full mid-axial slice, not a tiny inferior sliver
+MIN_LOBE  = 500             # the target lobe must be genuinely prominent in the chosen slice
 
 def synth_mask(atlas_lobe, brain, rng):
-    """Draw a 2-zone tumour (enhancing core + edema halo) at a random in-lobe, in-brain spot.
+    """Draw a 2-zone tumour (enhancing core + edema halo) inside the lobe, in-brain.
     atlas_lobe,(256,256) probabilities;  brain,(256,256) bool.  Returns (mask, centre) or (None,None)."""
     valid = (atlas_lobe > PROB_TH) & brain          # pixels that are both inside the lobe and inside the brain
     ys, xs = np.nonzero(valid)                       # coordinate lists of every valid pixel
     if len(ys) == 0:
         return None, None
-    j = int(rng.integers(len(ys)))                  # pick one valid pixel at random -> the tumour centre
+    # sample the centre WEIGHTED by atlas probability -> lands in the lobe's core, not its edge
+    w = atlas_lobe[ys, xs].astype(np.float64); w = w / w.sum()
+    j = int(rng.choice(len(ys), p=w))
     c0, c1 = ys[j], xs[j]
 
     idx0 = np.arange(256)[:, None]                  # (256,1) row index
@@ -67,7 +71,7 @@ def main():
         s = np.load(f).astype(np.float32)
         brain = s[1] > 0.05                          # channel 1 = T1
         al    = s[ATLAS0 + li]                       # this slice's map for the target lobe
-        if brain.sum() > 5000 and (s[2] > 0.5).sum() < 50 and ((al > PROB_TH) & brain).sum() > 200:
+        if brain.sum() > MIN_BRAIN and (s[2] > 0.5).sum() < 50 and ((al > PROB_TH) & brain).sum() > MIN_LOBE:
             stack, atlas_lobe = s, al
             break
     if stack is None:
