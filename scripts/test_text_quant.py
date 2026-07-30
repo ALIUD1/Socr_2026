@@ -31,7 +31,9 @@ from src.dataset import SliceDataset
 from src.model import build_text_model
 
 DEVICE, STEPS, SEED, MIDLINE = "cuda", 100, 0, 128   # 100 steps (not 200): plenty for an intensity stat, 2x faster
-CLIP_ID = "openai/clip-vit-base-patch32"
+CLIP_ID    = "openai/clip-vit-base-patch32"
+BLANK_MASK = os.environ.get("BLANK_MASK") == "1"     # BLANK_MASK=1 -> zero the tumour-mask channel at test
+MASK_CH    = 1                                        # cond order is [T1, mask, atlas*6]
 
 def force_side(cap, side):
     """Rewrite the caption so its side word is exactly `side`."""
@@ -51,7 +53,8 @@ def main():
     tokenizer    = CLIPTokenizer.from_pretrained(CLIP_ID)
     text_encoder = CLIPTextModel.from_pretrained(CLIP_ID).to(DEVICE).eval()
     sched = DDIMScheduler(num_train_timesteps=1000, clip_sample=True); sched.set_timesteps(STEPS)
-    print(f"checkpoint: {ckpt}\nguidance: {guidance}   target slices: {N}\n")
+    print(f"checkpoint: {ckpt}\nguidance: {guidance}   target slices: {N}   "
+          f"mask: {'BLANKED (text must place the tumour)' if BLANK_MASK else 'present'}\n")
 
     idx0 = np.arange(256)[:, None]      # (256,1) axis-0 index, broadcasts to a full-image mask
 
@@ -88,6 +91,8 @@ def main():
         brain = real > 0.05
         hi, lo = brain & (idx0 >= MIDLINE), brain & (idx0 < MIDLINE)   # L / R half-brain masks
         cond_b = cond.unsqueeze(0).to(DEVICE)
+        if BLANK_MASK:
+            cond_b[:, MASK_CH:MASK_CH+1] = 0.0       # remove the mask -> only text+atlas can place the tumour
 
         gL, gR = generate(cap_L, cond_b), generate(cap_R, cond_b)
         asym_L = gL[hi].mean() - gL[lo].mean()

@@ -34,6 +34,7 @@ from src.model import build_text_model
 DEVICE, STEPS, SEED = "cuda", 200, 0
 CLIP_ID  = "openai/clip-vit-base-patch32"
 MIDLINE  = 128
+BLANK_MASK = os.environ.get("BLANK_MASK") == "1"     # BLANK_MASK=1 -> zero the tumour-mask channel at test
 LOBES    = ["frontal", "parietal", "temporal", "occipital", "cerebellum", "insula"]
 
 def flip_side(cap):
@@ -67,6 +68,9 @@ def main():
     real   = target[0].numpy()                 # (256,256) ground-truth FLAIR
     mask   = cond[1].numpy()                   # (256,256) tumour segmentation
     cond_b = cond.unsqueeze(0).to(DEVICE)      # (1,8,256,256)
+    if BLANK_MASK:
+        cond_b[:, 1:2] = 0.0                   # remove the mask -> only text+atlas can place the tumour
+        print("mask BLANKED at test -> the caption must place the tumour")
 
     # --- where does the MASK actually put the tumour? (ground truth for the test) ---
     a0, _ = np.nonzero(mask > 0.5)             # a0 = axis-0 coords of tumour pixels
