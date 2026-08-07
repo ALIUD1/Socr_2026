@@ -1,0 +1,149 @@
+"""model3d.py — the 3D diffusion denoiser, defined once and shared by the 3D scripts.
+
+The 2D model came from diffusers (UNet2DModel). For 3D there is no drop-in equivalent that fits
+our use (diffusers' 3D U-Nets are video-oriented), so this is a compact 3D U-Net written directly
+in PyTorch. It is the same architecture family as the 2D one, with every 2D op swapped for its 3D
+counterpart: Conv2d -> Conv3d (a 3x3x3 kernel sliding through a volume instead of a 3x3 square
+sliding over an image).
+
+Same conditioning contract as 2D: 9 input channels = noisy FLAIR + 8 conditioning
+(T1 + tumour mask + 6 atlas lobes), 1 output channel = the predicted noise.
+
+Resolution ladder at 64^3:  64 -> 32 -> 16 -> 8, channels 32 -> 64 -> 128 -> 256.
+Self-attention runs ONLY at the 8^3 bottleneck (512 tokens = cheap). At 64^3 it would be
+262,144 tokens attending to each other, which is impossible -- the same constraint that kept
+attention at the deepest level in the 2D model.
+"""
+import math
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+def timestep_embedding(t, dim):
+    """Map integer timesteps -> smooth vectors the network can condition on.
+
+    t: (B,) int tensor of timesteps.  Returns (B, dim).
+    Uses the standard sinusoidal encoding: a bank of sine/cosine waves at geometrically spaced
+    frequencies. Nearby timesteps get similar vectors (so the model can interpolate), while the
+    many different frequencies keep every timestep uniquely identifiable.
+    """
+    half = dim // 2
+    freqs = torch.exp(-math.log(10000.0) * torch.arange(half, device=t.device).float() / half)
+    args = t.float()[:, None] * freqs[None]          # (B, half)
+    return torch.cat([args.sin(), args.cos()], dim=-1)   # (B, dim)
+
+class ResBlock3D(nn.Module):
+    """Conv-norm-SiLU twice, with the timestep embedding added in between, plus a residual skip."""
+    def __init__(self, cin, cout, temb_dim):
+        super().__init__()
+        self.norm1 = nn.GroupNorm(8, cin)
+        self.conv1 = nn.Conv3d(cin, cout, 3, padding=1)
+        self.emb   = nn.Linear(temb_dim, cout)        # projects the time vector to this block's width
+        self.norm2 = nn.GroupNorm(8, cout)
+        self.conv2 = nn.Conv3d(cout, cout, 3, padding=1)
+        # if the channel count changes, the residual needs a 1x1x1 conv to match shapes
+        self.skip  = nn.Conv3d(cin, cout, 1) if cin != cout else nn.Identity()
+
+    def forward(self, x, temb):
+        h = self.conv1(F.silu(self.norm1(x)))                       # (B,cout,D,H,W)
+        # broadcast the per-sample time vector over every voxel: (B,cout) -> (B,cout,1,1,1)
+        h = h + self.emb(F.silu(temb))[:, :, None, None, None]
+        h = self.conv2(F.silu(self.norm2(h)))
+        return h + self.skip(x)
+
+class Attn3D(nn.Module):
+    """Self-attention over the volume — every voxel attends to every other voxel.
+    Only affordable at the 8^3 bottleneck (512 tokens -> a 512x512 attention matrix)."""
+    def __init__(self, c):
+        super().__init__()
+        self.norm = nn.GroupNorm(8, c)
+        self.qkv  = nn.Conv3d(c, c * 3, 1)            # one 1x1x1 conv produces Q, K and V at once
+        self.proj = nn.Conv3d(c, c, 1)
+
+    def forward(self, x):
+        B, C, D, H, W = x.shape
+        N = D * H * W                                              # number of tokens (voxels)
+        q, k, v = self.qkv(self.norm(x)).reshape(B, 3, C, N).unbind(1)   # each (B,C,N)
+        att = torch.softmax(q.transpose(1, 2) @ k / math.sqrt(C), dim=-1)  # (B,N,N)
+        h = (v @ att.transpose(1, 2)).reshape(B, C, D, H, W)
+        return x + self.proj(h)                                    # residual
+
+class UNet3D(nn.Module):
+    def __init__(self, in_ch=9, out_ch=1, ch=(32, 64, 128, 256), temb_dim=128):
+        super().__init__()
+        self.temb_dim = temb_dim
+        emb = temb_dim * 4
+        # a small MLP gives the raw sinusoidal encoding room to become a useful representation
+        self.temb = nn.Sequential(nn.Linear(temb_dim, emb), nn.SiLU(), nn.Linear(emb, emb))
+
+        self.stem = nn.Conv3d(in_ch, ch[0], 3, padding=1)          # 9 -> 32 channels @64^3
+        self.d0, self.d1, self.d2 = (ResBlock3D(ch[0], ch[0], emb),
+                                     ResBlock3D(ch[0], ch[1], emb),
+                                     ResBlock3D(ch[1], ch[2], emb))
+        # stride-2 convs halve each spatial dimension: 64 -> 32 -> 16 -> 8
+        self.down0 = nn.Conv3d(ch[0], ch[0], 3, stride=2, padding=1)
+        self.down1 = nn.Conv3d(ch[1], ch[1], 3, stride=2, padding=1)
+        self.down2 = nn.Conv3d(ch[2], ch[2], 3, stride=2, padding=1)
+
+        self.mid1, self.attn, self.mid2 = (ResBlock3D(ch[2], ch[3], emb),
+                                           Attn3D(ch[3]),
+                                           ResBlock3D(ch[3], ch[3], emb))
+
+        # after upsampling we concatenate the matching skip, so the input width is up+skip
+        self.u2 = ResBlock3D(ch[3] + ch[2], ch[2], emb)
+        self.u1 = ResBlock3D(ch[2] + ch[1], ch[1], emb)
+        self.u0 = ResBlock3D(ch[1] + ch[0], ch[0], emb)
+
+        self.out_norm = nn.GroupNorm(8, ch[0])
+        self.out_conv = nn.Conv3d(ch[0], out_ch, 1)
+
+    @staticmethod
+    def up(x):
+        """Nearest-neighbour upsample by 2 (avoids the checkerboard artefacts of transposed conv)."""
+        return F.interpolate(x, scale_factor=2, mode="nearest")
+
+    def forward(self, x, t):
+        """x: (B,9,64,64,64) noisy FLAIR + conditioning.  t: (B,) timesteps.  -> (B,1,64,64,64)."""
+        temb = self.temb(timestep_embedding(t, self.temb_dim))     # (B, 512)
+
+        h  = self.stem(x)                       # (B, 32, 64,64,64)
+        s0 = self.d0(h, temb)                   # (B, 32, 64,64,64)  <- skip 0
+        s1 = self.d1(self.down0(s0), temb)      # (B, 64, 32,32,32)  <- skip 1
+        s2 = self.d2(self.down1(s1), temb)      # (B,128, 16,16,16)  <- skip 2
+
+        m = self.mid2(self.attn(self.mid1(self.down2(s2), temb)), temb)   # (B,256, 8,8,8)
+
+        d = self.u2(torch.cat([self.up(m), s2], 1), temb)   # (B,128, 16,16,16)
+        d = self.u1(torch.cat([self.up(d), s1], 1), temb)   # (B, 64, 32,32,32)
+        d = self.u0(torch.cat([self.up(d), s0], 1), temb)   # (B, 32, 64,64,64)
+        return self.out_conv(F.silu(self.out_norm(d)))      # (B,  1, 64,64,64)
+
+def build_model_3d():
+    """Conditional 3D denoiser: 9 in (noisy FLAIR + T1 + mask + 6 atlas) -> 1 out (noise)."""
+    return UNet3D(in_ch=9, out_ch=1)
+
+if __name__ == "__main__":
+    # shape + memory self-test: run `python src/model3d.py` before launching any training
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    m = build_model_3d().to(dev)
+    print(f"device {dev} | params {sum(p.numel() for p in m.parameters())/1e6:.1f}M")
+    for B in (1, 2, 4, 8):
+        try:
+            x = torch.randn(B, 9, 64, 64, 64, device=dev)
+            t = torch.randint(0, 1000, (B,), device=dev)
+            if dev == "cuda":
+                torch.cuda.reset_peak_memory_stats()
+            with torch.amp.autocast(dev, enabled=(dev == "cuda")):
+                y = m(x, t)
+                loss = y.pow(2).mean()
+            loss.backward()
+            peak = torch.cuda.max_memory_allocated() / 1e9 if dev == "cuda" else 0.0
+            print(f"batch {B}: in {tuple(x.shape)} -> out {tuple(y.shape)}  peak {peak:.1f} GB  FITS")
+            m.zero_grad(set_to_none=True)
+            del x, t, y, loss
+            if dev == "cuda":
+                torch.cuda.empty_cache()
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                print(f"batch {B}: OUT OF MEMORY"); break
+            raise

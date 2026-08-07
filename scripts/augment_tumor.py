@@ -18,6 +18,7 @@ import sys, os, glob, random
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch, numpy as np
 from datetime import datetime
+from scipy.ndimage import gaussian_filter, label
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
 from diffusers import DDIMScheduler
 from src.model import build_model
@@ -26,32 +27,87 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"   # set CUDA_VISIBLE_DEV
 STEPS  = int(os.environ.get("AUG_STEPS", "200"))          # e.g. AUG_STEPS=60 for a faster CPU test
 LOBES   = ["frontal", "parietal", "temporal", "occipital", "cerebellum", "insula"]
 ATLAS0  = 3                 # in the 9-channel stack, atlas lobe k lives at channel 3+k
-CORE_R, EDEMA_R = 9, 20     # blob radii in pixels (1 mm/px) -> ~18mm core, ~40mm lesion
 PROB_TH   = 0.4             # "inside this lobe" = atlas probability above this
 MIN_BRAIN = 15000           # require a full mid-axial slice, not a tiny inferior sliver
 MIN_LOBE  = 500             # the target lobe must be genuinely prominent in the chosen slice
 
+# --- tumour SIZE is now RELATIVE to the lobe, not a fixed radius -------------------------
+AREA_FRAC   = (0.15, 0.35)  # lesion area as a fraction of the lobe's area IN THIS SLICE
+CORE_FRAC   = 0.30          # enhancing core as a fraction of the lesion's area
+MIN_AREA    = 60            # px; below this a "tumour" is too small to be meaningful
+# --- tumour SHAPE is now organic + atlas-conforming --------------------------------------
+COMPACT     = 0.95          # >1 = looser/more sprawling blob, <1 = tighter around the seed
+NOISE_SIGMA = 6.0           # smoothing of the random field: larger = smoother, blobbier edges
+NOISE_AMP   = 0.9           # 0 = perfect ellipse, ~1 = strongly irregular outline
+
 def synth_mask(atlas_lobe, brain, rng):
-    """Draw a 2-zone tumour (enhancing core + edema halo) inside the lobe, in-brain.
-    atlas_lobe,(256,256) probabilities;  brain,(256,256) bool.  Returns (mask, centre) or (None,None)."""
-    valid = (atlas_lobe > PROB_TH) & brain          # pixels that are both inside the lobe and inside the brain
-    ys, xs = np.nonzero(valid)                       # coordinate lists of every valid pixel
-    if len(ys) == 0:
+    """Grow an organic tumour that CONFORMS to the lobe and is SIZED relative to it.
+
+    Instead of stamping a fixed circle, we score every pixel by
+        atlas probability  x  compactness-around-a-seed  x  smooth random field
+    and take the top-N pixels, where N is a fraction of the lobe's area in this slice.
+    The atlas term makes the lesion hug the lobe's real shape; the random field makes the
+    outline irregular like a real tumour; the compactness term keeps it a single mass.
+
+    atlas_lobe,(256,256) probabilities;  brain,(256,256) bool.
+    Returns (mask,(256,256) with labels 2=edema/3=core, centre) or (None,None).
+    """
+    lobe = (atlas_lobe > PROB_TH) & brain            # the lobe's footprint in THIS slice
+    n_lobe = int(lobe.sum())
+    if n_lobe < MIN_LOBE:
         return None, None
-    # sample the centre WEIGHTED by atlas probability -> lands in the lobe's core, not its edge
+
+    # --- 1. seed: a point well inside the lobe (sampled by atlas probability) ---
+    ys, xs = np.nonzero(lobe)
     w = atlas_lobe[ys, xs].astype(np.float64); w = w / w.sum()
     j = int(rng.choice(len(ys), p=w))
-    c0, c1 = ys[j], xs[j]
+    c0, c1 = int(ys[j]), int(xs[j])
 
-    idx0 = np.arange(256)[:, None]                  # (256,1) row index
-    idx1 = np.arange(256)[None, :]                  # (1,256) col index
-    dist = np.sqrt((idx0 - c0) ** 2 + (idx1 - c1) ** 2)   # (256,256) distance of every pixel from the centre
+    # --- 2. target size: a fraction of THIS lobe's area -> big lobe, big tumour ---
+    n_les = int(rng.uniform(*AREA_FRAC) * n_lobe)
+    if n_les < MIN_AREA:
+        return None, None
 
+    # --- 3. score field = atlas x compactness x irregularity ---
+    idx0 = np.arange(256, dtype=np.float32)[:, None]      # (256,1) row index
+    idx1 = np.arange(256, dtype=np.float32)[None, :]      # (1,256) col index
+    dist = np.sqrt((idx0 - c0) ** 2 + (idx1 - c1) ** 2)   # (256,256) distance from the seed
+    r_eq = np.sqrt(n_les / np.pi)                         # radius a circle of that area would have
+    compact = np.exp(-(dist / (COMPACT * r_eq)) ** 2)     # smooth falloff -> keeps it one mass
+
+    noise = gaussian_filter(rng.standard_normal((256, 256)).astype(np.float32), NOISE_SIGMA)
+    noise = (noise - noise.min()) / (noise.max() - noise.min() + 1e-8)   # -> [0,1]
+    irregular = 1.0 + NOISE_AMP * (noise - 0.5)           # ~[0.55,1.45] multiplier
+
+    score = atlas_lobe.astype(np.float32) * compact * irregular
+    score[~lobe] = 0.0                                    # HARD constraint: never leave the lobe
+
+    # --- 4. take the top-N scoring pixels = the lesion ---
+    flat = score.ravel()
+    n_les = min(n_les, int((flat > 0).sum()))
+    if n_les < MIN_AREA:
+        return None, None
+    top = np.argpartition(flat, -n_les)[-n_les:]          # indices of the N highest scores
+    blob = np.zeros(256 * 256, bool); blob[top] = True
+    blob = blob.reshape(256, 256)
+
+    # --- 5. keep only the largest connected piece (no scattered islands) ---
+    lab, n = label(blob)                                  # scipy: tag each connected component
+    if n > 1:
+        sizes = np.bincount(lab.ravel()); sizes[0] = 0    # index 0 = background, ignore it
+        blob = lab == sizes.argmax()
+
+    # --- 6. core = the highest-scoring pixels INSIDE the lesion ---
     m = np.zeros((256, 256), np.float32)
-    m[dist <= EDEMA_R] = 2                           # label 2 = edema (the bright FLAIR halo)
-    m[dist <= CORE_R]  = 3                           # label 3 = enhancing tumour (the core)
-    m[~brain] = 0                                    # never let the tumour spill outside the brain
-    return m, (int(c0), int(c1))
+    m[blob] = 2                                           # label 2 = edema (bright FLAIR halo)
+    inside = score * blob                                 # scores, zeroed outside the lesion
+    n_core = max(1, int(CORE_FRAC * blob.sum()))
+    core_idx = np.argpartition(inside.ravel(), -n_core)[-n_core:]
+    core = np.zeros(256 * 256, bool); core[core_idx] = True
+    m[core.reshape(256, 256) & blob] = 3                  # label 3 = enhancing tumour core
+
+    m[~brain] = 0                                         # never spill outside the brain
+    return m, (c0, c1)
 
 def main():
     print(f"device: {DEVICE}  steps: {STEPS}" + ("  (CPU -> slow, be patient)" if DEVICE == "cpu" else ""))
@@ -79,7 +135,13 @@ def main():
 
     brain = stack[1] > 0.05
     m, centre = synth_mask(atlas_lobe, brain, rng)
+    if m is None:
+        raise RuntimeError(f"could not grow a tumour in the {lobe} lobe on this slice")
+    n_lobe = int(((atlas_lobe > PROB_TH) & brain).sum())
+    n_les, n_core = int((m > 0).sum()), int((m == 3).sum())
     print(f"placed a synthetic tumour in the {lobe} lobe, centre (axis0,axis1)={centre}")
+    print(f"  lobe area {n_lobe} px | lesion {n_les} px ({100*n_les/n_lobe:.0f}% of the lobe) "
+          f"| core {n_core} px | lesion diameter ~{2*np.sqrt(n_les/np.pi):.0f} mm")
 
     # build conditioning = [T1, OUR mask, atlas] by swapping our mask into channel 2
     stack[2] = m
