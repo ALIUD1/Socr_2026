@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
-#SBATCH --time=30:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=outputs/train_3d_%j.log
 
 # sized from the src/model3d.py self-test: width 96 = 95M params,
