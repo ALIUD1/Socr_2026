@@ -14,7 +14,7 @@ Self-attention runs ONLY at the 8^3 bottleneck (512 tokens = cheap). At 64^3 it 
 262,144 tokens attending to each other, which is impossible -- the same constraint that kept
 attention at the deepest level in the 2D model.
 """
-import math
+import math, os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -118,15 +118,27 @@ class UNet3D(nn.Module):
         d = self.u0(torch.cat([self.up(d), s0], 1), temb)   # (B, 32, 64,64,64)
         return self.out_conv(F.silu(self.out_norm(d)))      # (B,  1, 64,64,64)
 
-def build_model_3d():
-    """Conditional 3D denoiser: 9 in (noisy FLAIR + T1 + mask + 6 atlas) -> 1 out (noise)."""
-    return UNet3D(in_ch=9, out_ch=1)
+def build_model_3d(width=None):
+    """Conditional 3D denoiser: 9 in (noisy FLAIR + T1 + mask + 6 atlas) -> 1 out (noise).
+
+    `width` is the base channel count; the four levels are (w, 2w, 4w, 8w).
+      w=32 ->  11M params (the first feasibility build, too small for good detail)
+      w=64 ->  45M params (recommended: uses the RTX 6000's headroom)
+      w=96 -> 100M params (comparable to the 2D model's 85M)
+    Override without editing code:  WIDTH_3D=64 python src/model3d.py
+    Any w must be divisible by 8, because every GroupNorm uses 8 groups.
+    """
+    w = int(width if width is not None else os.environ.get("WIDTH_3D", "64"))
+    assert w % 8 == 0, "width must be divisible by 8 (GroupNorm(8, C))"
+    return UNet3D(in_ch=9, out_ch=1, ch=(w, w * 2, w * 4, w * 8))
 
 if __name__ == "__main__":
     # shape + memory self-test: run `python src/model3d.py` before launching any training
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     m = build_model_3d().to(dev)
-    print(f"device {dev} | params {sum(p.numel() for p in m.parameters())/1e6:.1f}M")
+    w = int(os.environ.get("WIDTH_3D", "64"))
+    print(f"device {dev} | width {w} -> channels {(w, w*2, w*4, w*8)} | "
+          f"params {sum(p.numel() for p in m.parameters())/1e6:.1f}M")
     for B in (1, 2, 4, 8):
         try:
             x = torch.randn(B, 9, 64, 64, 64, device=dev)

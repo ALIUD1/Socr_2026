@@ -20,8 +20,8 @@ from src.dataset3d import VolumeDataset
 from src.model3d import build_model_3d
 
 DEVICE, T, LR = "cuda", 1000, 1e-4
-BATCH    = int(os.environ.get("BATCH_3D", "4"))    # raise if probe_3d.py says it fits
-EPOCHS   = int(os.environ.get("EPOCHS_3D", "100")) # volumes are ~130x fewer items than slices
+BATCH    = int(os.environ.get("BATCH_3D", "16"))    # set from the src/model3d.py self-test
+EPOCHS   = int(os.environ.get("EPOCHS_3D", "400"))  # ~875 volumes -> few steps/epoch, so many epochs
 CKPT_DIR = "models"
 TAG      = "diffusion3d"
 
@@ -35,9 +35,10 @@ def main():
     loader = DataLoader(VolumeDataset("train"), batch_size=BATCH, shuffle=True, num_workers=4)
     print(f"{len(loader.dataset)} training volumes | batch {BATCH} | {len(loader)} steps/epoch", flush=True)
 
-    model  = build_model_3d().to(DEVICE)
+    model  = build_model_3d().to(DEVICE)      # width comes from WIDTH_3D (default 64)
     nparam = sum(p.numel() for p in model.parameters()) / 1e6
-    print(f"model: {nparam:.1f}M params", flush=True)
+    print(f"model: {nparam:.1f}M params (width {os.environ.get('WIDTH_3D','64')}) | "
+          f"{EPOCHS} epochs -> {EPOCHS*len(loader)} total gradient steps", flush=True)
 
     opt    = torch.optim.AdamW(model.parameters(), lr=LR)
     scaler = torch.amp.GradScaler("cuda")
