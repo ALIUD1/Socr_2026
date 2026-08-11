@@ -24,6 +24,11 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 
 VOXEL_MM = 3.75          # 240 mm field of view / 64 voxels -> each voxel is 3.75 mm isotropic
 FPS      = 12
+# INT_SCALE=0 (default) keeps the NIfTI as float32 in [0,1].
+# INT_SCALE=255 writes uint8 -- the standard mapping, [0,1] -> [0,255] exactly.
+# INT_SCALE=256 is also allowed, but 1.0*256 = 256 overflows uint8, so we CLIP to 255
+# (without the clip, the brightest voxels would wrap around to 0 and render black).
+INT_SCALE = float(os.environ.get("INT_SCALE", "0"))
 
 def main():
     if len(sys.argv) > 1:
@@ -44,7 +49,17 @@ def main():
     # The affine maps voxel indices -> millimetres. A diagonal matrix of the voxel size is
     # exactly "x mm per step along each axis", so viewers show correct real-world distances.
     affine = np.diag([VOXEL_MM, VOXEL_MM, VOXEL_MM, 1.0])
-    nib.save(nib.Nifti1Image(vol, affine), f"{stem}.nii.gz")
+    if INT_SCALE > 0:
+        # np.rint = round-half-to-EVEN (banker's rounding), the numpy default. np.floor(x+0.5)
+        # would round half-up instead; for image intensities the difference is negligible.
+        vol_nii = np.clip(np.rint(vol * INT_SCALE), 0, 255).astype(np.uint8)
+        n_clipped = int((np.rint(vol * INT_SCALE) > 255).sum())
+        print(f"NIfTI dtype uint8 (x{INT_SCALE:g}, clipped to 0-255) | "
+              f"levels used {vol_nii.min()}-{vol_nii.max()}"
+              + (f" | {n_clipped} voxels clipped at 255" if n_clipped else ""))
+    else:
+        vol_nii = vol                                   # float32, values stay in [0,1]
+    nib.save(nib.Nifti1Image(vol_nii, affine), f"{stem}.nii.gz")
     print(f"saved {stem}.nii.gz  ({VOXEL_MM} mm isotropic — open in ITK-SNAP / 3D Slicer / FSLeyes)")
 
     # ---- 2. scrolling GIF ------------------------------------------------------------
