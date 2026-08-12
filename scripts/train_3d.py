@@ -19,9 +19,14 @@ from diffusers.training_utils import EMAModel
 from src.dataset3d import VolumeDataset
 from src.model3d import build_model_3d
 
-DEVICE, T, LR = "cuda", 1000, 1e-4
+DEVICE, T = "cuda", 1000
+LR       = float(os.environ.get("LR_3D", "1e-4"))   # drop to ~2e-5 when resuming a plateaued run
 BATCH    = int(os.environ.get("BATCH_3D", "16"))    # set from the src/model3d.py self-test
 EPOCHS   = int(os.environ.get("EPOCHS_3D", "400"))  # ~875 volumes -> few steps/epoch, so many epochs
+# RESUME_3D=models/diffusion3d_last.pt continues from an existing run instead of starting fresh.
+# NOTE: only the WEIGHTS are restored, not Adam's momentum buffers -- Adam re-warms within a few
+# dozen steps, so this is fine in practice, but it is why the first epoch after a resume can tick up.
+RESUME   = os.environ.get("RESUME_3D", "")
 CKPT_DIR = "models"
 TAG      = "diffusion3d"
 
@@ -36,8 +41,11 @@ def main():
     print(f"{len(loader.dataset)} training volumes | batch {BATCH} | {len(loader)} steps/epoch", flush=True)
 
     model  = build_model_3d().to(DEVICE)      # width comes from WIDTH_3D (default 64)
+    if RESUME:
+        model.load_state_dict(torch.load(RESUME, map_location=DEVICE))   # shape error = wrong WIDTH_3D
+        print(f"RESUMED weights from {RESUME}", flush=True)
     nparam = sum(p.numel() for p in model.parameters()) / 1e6
-    print(f"model: {nparam:.1f}M params (width {os.environ.get('WIDTH_3D','64')}) | "
+    print(f"model: {nparam:.1f}M params (width {os.environ.get('WIDTH_3D','64')}) | lr {LR:g} | "
           f"{EPOCHS} epochs -> {EPOCHS*len(loader)} total gradient steps", flush=True)
 
     opt    = torch.optim.AdamW(model.parameters(), lr=LR)
