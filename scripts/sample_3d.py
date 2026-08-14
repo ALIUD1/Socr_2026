@@ -26,7 +26,9 @@ from src.dataset3d import VolumeDataset
 from src.model3d import build_model_3d
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-CKPT   = "models/diffusion3d_ema.pt"
+# CKPT_3D lets you point at any checkpoint, e.g. the pre-resume backup for a before/after:
+#   CKPT_3D=models/diffusion3d_ema_run1.pt python scripts/sample_3d.py 100
+CKPT   = os.environ.get("CKPT_3D", "models/diffusion3d_ema.pt")
 RES    = 64
 
 def main():
