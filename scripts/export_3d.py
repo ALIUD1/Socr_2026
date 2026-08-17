@@ -39,9 +39,21 @@ def main():
             raise SystemExit("no volumes found — run scripts/sample_3d.py first")
         path = cands[-1]                                  # newest by modification time
     vol = np.load(path).astype(np.float32)
+    # A generated volume is (64,64,64). A PREPROCESSED REAL volume is (9,64,64,64) --
+    # [FLAIR, T1, mask, atlas x6] -- so take channel 0 (or CHANNEL=1 for the T1) and export
+    # the real FLAIR the same way, which is what you need for a real-vs-generated comparison.
+    if vol.ndim == 4:
+        ch = int(os.environ.get("CHANNEL", "0"))
+        print(f"4D input {vol.shape} -> taking channel {ch} "
+              f"({['FLAIR','T1','mask'][ch] if ch < 3 else 'atlas'})")
+        vol = vol[ch]
     if vol.ndim != 3:
         raise SystemExit(f"expected a 3D volume, got shape {vol.shape}")
     stem = os.path.splitext(path)[0]
+    out_dir = os.environ.get("OUT_DIR", "")
+    if out_dir:                                        # keep real exports out of the dataset folder
+        os.makedirs(out_dir, exist_ok=True)
+        stem = os.path.join(out_dir, os.path.basename(stem))
     D, H, W = vol.shape
     print(f"{path}  shape {vol.shape}  range [{vol.min():.2f}, {vol.max():.2f}]")
 
