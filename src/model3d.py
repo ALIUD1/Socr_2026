@@ -51,6 +51,25 @@ class ResBlock3D(nn.Module):
         h = self.conv2(F.silu(self.norm2(h)))
         return h + self.skip(x)
 
+class ResStack(nn.Module):
+    """`n` ResBlock3D in series. Only the first changes the channel count.
+
+    DEPTH is what the first 3D build was missing: it had ONE ResBlock per resolution level
+    (8 total) while the working 2D model has layers_per_block=2 (~22 total). Width gives you
+    more features per step; DEPTH gives you more refinement steps, which is what produces fine
+    detail. A wide-but-shallow net learns coarse shape well and stalls on contrast -- exactly
+    the failure we observed.
+    """
+    def __init__(self, cin, cout, temb_dim, n):
+        super().__init__()
+        self.blocks = nn.ModuleList(
+            [ResBlock3D(cin if i == 0 else cout, cout, temb_dim) for i in range(n)])
+
+    def forward(self, x, temb):
+        for b in self.blocks:
+            x = b(x, temb)
+        return x
+
 class Attn3D(nn.Module):
     """Self-attention over the volume — every voxel attends to every other voxel.
     Only affordable at the 8^3 bottleneck (512 tokens -> a 512x512 attention matrix)."""
@@ -69,7 +88,7 @@ class Attn3D(nn.Module):
         return x + self.proj(h)                                    # residual
 
 class UNet3D(nn.Module):
-    def __init__(self, in_ch=9, out_ch=1, ch=(32, 64, 128, 256), temb_dim=128):
+    def __init__(self, in_ch=9, out_ch=1, ch=(32, 64, 128, 256), temb_dim=128, blocks=2):
         super().__init__()
         self.temb_dim = temb_dim
         emb = temb_dim * 4
@@ -77,9 +96,9 @@ class UNet3D(nn.Module):
         self.temb = nn.Sequential(nn.Linear(temb_dim, emb), nn.SiLU(), nn.Linear(emb, emb))
 
         self.stem = nn.Conv3d(in_ch, ch[0], 3, padding=1)          # 9 -> 32 channels @64^3
-        self.d0, self.d1, self.d2 = (ResBlock3D(ch[0], ch[0], emb),
-                                     ResBlock3D(ch[0], ch[1], emb),
-                                     ResBlock3D(ch[1], ch[2], emb))
+        self.d0, self.d1, self.d2 = (ResStack(ch[0], ch[0], emb, blocks),
+                                     ResStack(ch[0], ch[1], emb, blocks),
+                                     ResStack(ch[1], ch[2], emb, blocks))
         # stride-2 convs halve each spatial dimension: 64 -> 32 -> 16 -> 8
         self.down0 = nn.Conv3d(ch[0], ch[0], 3, stride=2, padding=1)
         self.down1 = nn.Conv3d(ch[1], ch[1], 3, stride=2, padding=1)
@@ -90,9 +109,9 @@ class UNet3D(nn.Module):
                                            ResBlock3D(ch[3], ch[3], emb))
 
         # after upsampling we concatenate the matching skip, so the input width is up+skip
-        self.u2 = ResBlock3D(ch[3] + ch[2], ch[2], emb)
-        self.u1 = ResBlock3D(ch[2] + ch[1], ch[1], emb)
-        self.u0 = ResBlock3D(ch[1] + ch[0], ch[0], emb)
+        self.u2 = ResStack(ch[3] + ch[2], ch[2], emb, blocks)
+        self.u1 = ResStack(ch[2] + ch[1], ch[1], emb, blocks)
+        self.u0 = ResStack(ch[1] + ch[0], ch[0], emb, blocks)
 
         self.out_norm = nn.GroupNorm(8, ch[0])
         self.out_conv = nn.Conv3d(ch[0], out_ch, 1)
@@ -129,15 +148,17 @@ def build_model_3d(width=None):
     Any w must be divisible by 8, because every GroupNorm uses 8 groups.
     """
     w = int(width if width is not None else os.environ.get("WIDTH_3D", "64"))
+    b = int(os.environ.get("BLOCKS_3D", "2"))     # ResBlocks per level; 2 matches the 2D model
     assert w % 8 == 0, "width must be divisible by 8 (GroupNorm(8, C))"
-    return UNet3D(in_ch=9, out_ch=1, ch=(w, w * 2, w * 4, w * 8))
+    return UNet3D(in_ch=9, out_ch=1, ch=(w, w * 2, w * 4, w * 8), blocks=b)
 
 if __name__ == "__main__":
     # shape + memory self-test: run `python src/model3d.py` before launching any training
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     m = build_model_3d().to(dev)
     w = int(os.environ.get("WIDTH_3D", "64"))
-    print(f"device {dev} | width {w} -> channels {(w, w*2, w*4, w*8)} | "
+    b = int(os.environ.get("BLOCKS_3D", "2"))
+    print(f"device {dev} | width {w} -> channels {(w, w*2, w*4, w*8)} | {b} blocks/level | "
           f"params {sum(p.numel() for p in m.parameters())/1e6:.1f}M")
     for B in (1, 2, 4, 8):
         try:

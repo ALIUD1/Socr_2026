@@ -15,7 +15,8 @@ Usage:
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-os.environ.setdefault("WIDTH_3D", "96")          # MUST match the width used in training
+os.environ.setdefault("WIDTH_3D", "64")   # MUST match training. Old run1/run2 ckpts were
+os.environ.setdefault("BLOCKS_3D", "2")   # width 96 / 1 block -> set those explicitly for them.
 
 import torch, numpy as np
 from datetime import datetime
@@ -36,13 +37,19 @@ def main():
     which = int(sys.argv[2]) if len(sys.argv) > 2 else 0
 
     model = build_model_3d().to(DEVICE)
-    model.load_state_dict(torch.load(CKPT, map_location=DEVICE))   # shape error here = wrong WIDTH_3D
+    model.load_state_dict(torch.load(CKPT, map_location=DEVICE))   # shape error = wrong WIDTH_3D/BLOCKS_3D
     model.eval()
     n = sum(p.numel() for p in model.parameters()) / 1e6
-    print(f"device {DEVICE} | width {os.environ['WIDTH_3D']} | {n:.1f}M params | {steps} DDIM steps")
+    print(f"device {DEVICE} | width {os.environ['WIDTH_3D']} | {os.environ['BLOCKS_3D']} blocks/level | "
+          f"{n:.1f}M params | {steps} DDIM steps")
 
-    sched = DDIMScheduler(num_train_timesteps=1000, clip_sample=True)
+    # MUST match the schedule used in training, or sampling walks a different trajectory
+    # than the model was trained for and the output is garbage.
+    sched_name = os.environ.get("SCHED_3D", "linear")
+    kw = {"beta_schedule": "squaredcos_cap_v2"} if sched_name == "cosine" else {}
+    sched = DDIMScheduler(num_train_timesteps=1000, clip_sample=True, **kw)
     sched.set_timesteps(steps)
+    print(f"noise schedule: {sched_name}")
 
     # pick a held-out volume that actually contains a tumour, for a more interesting figure
     ds = VolumeDataset("val")
