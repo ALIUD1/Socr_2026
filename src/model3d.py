@@ -137,6 +137,30 @@ class UNet3D(nn.Module):
         d = self.u0(torch.cat([self.up(d), s0], 1), temb)   # (B, 32, 64,64,64)
         return self.out_conv(F.silu(self.out_norm(d)))      # (B,  1, 64,64,64)
 
+def load_state_compat(model, path, device):
+    """Load a checkpoint, tolerating ones saved BEFORE the ResStack wrapper existed.
+
+    Wrapping the per-level blocks in ResStack inserted a level into every parameter path:
+        old  d0.norm1.weight        (ResBlock3D directly on the attribute)
+        new  d0.blocks.0.norm1.weight
+    The tensors are identical, only the names differ, so for a 1-block model we can just
+    reinsert ".blocks.0". The mid blocks are still plain ResBlock3D, so they never changed.
+    """
+    sd = torch.load(path, map_location=device)
+    try:
+        model.load_state_dict(sd)
+        return "direct"
+    except RuntimeError:
+        stacks = ("d0.", "d1.", "d2.", "u0.", "u1.", "u2.")
+        remap = {}
+        for k, v in sd.items():
+            if k.startswith(stacks) and k.split(".")[1] != "blocks":
+                head, rest = k.split(".", 1)
+                k = f"{head}.blocks.0.{rest}"
+            remap[k] = v
+        model.load_state_dict(remap)
+        return "remapped (pre-ResStack checkpoint)"
+
 def build_model_3d(width=None):
     """Conditional 3D denoiser: 9 in (noisy FLAIR + T1 + mask + 6 atlas) -> 1 out (noise).
 

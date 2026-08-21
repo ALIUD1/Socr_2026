@@ -24,7 +24,7 @@ import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
 from diffusers import DDIMScheduler
 
 from src.dataset3d import VolumeDataset
-from src.model3d import build_model_3d
+from src.model3d import build_model_3d, load_state_compat
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # CKPT_3D lets you point at any checkpoint, e.g. the pre-resume backup for a before/after:
@@ -37,7 +37,8 @@ def main():
     which = int(sys.argv[2]) if len(sys.argv) > 2 else 0
 
     model = build_model_3d().to(DEVICE)
-    model.load_state_dict(torch.load(CKPT, map_location=DEVICE))   # shape error = wrong WIDTH_3D/BLOCKS_3D
+    how = load_state_compat(model, CKPT, DEVICE)   # shape error = wrong WIDTH_3D/BLOCKS_3D
+    print(f"loaded {CKPT} ({how})")
     model.eval()
     n = sum(p.numel() for p in model.parameters()) / 1e6
     print(f"device {DEVICE} | width {os.environ['WIDTH_3D']} | {os.environ['BLOCKS_3D']} blocks/level | "
