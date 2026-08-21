@@ -24,11 +24,11 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 
 VOXEL_MM = 3.75          # 240 mm field of view / 64 voxels -> each voxel is 3.75 mm isotropic
 FPS      = 12
-# INT_SCALE=0 (default) keeps the NIfTI as float32 in [0,1].
-# INT_SCALE=255 writes uint8 -- the standard mapping, [0,1] -> [0,255] exactly.
-# INT_SCALE=256 is also allowed, but 1.0*256 = 256 overflows uint8, so we CLIP to 255
-# (without the clip, the brightest voxels would wrap around to 0 and render black).
-INT_SCALE = float(os.environ.get("INT_SCALE", "0"))
+# DEFAULT is uint8: INT_SCALE=255 maps [0,1] -> [0,255] exactly, which is what viewers expect
+# and what most medical images actually store. INT_SCALE=256 is allowed but CLIPPED, since
+# 1.0*256 = 256 overflows uint8 and the brightest voxels would wrap to 0 (rendering black).
+# INT_SCALE=0 opts back out and keeps float32 in [0,1] for downstream numeric work.
+INT_SCALE = float(os.environ.get("INT_SCALE", "255"))
 
 def main():
     if len(sys.argv) > 1:
