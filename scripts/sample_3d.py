@@ -24,7 +24,7 @@ import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
 from diffusers import DDIMScheduler
 
 from src.dataset3d import VolumeDataset
-from src.model3d import build_model_3d, load_state_compat
+from src.model3d import build_3d, load_state_compat
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # CKPT_3D lets you point at any checkpoint, e.g. the pre-resume backup for a before/after:
@@ -36,7 +36,7 @@ def main():
     steps = int(sys.argv[1]) if len(sys.argv) > 1 else 100
     which = int(sys.argv[2]) if len(sys.argv) > 2 else 0
 
-    model = build_model_3d().to(DEVICE)
+    model = build_3d().to(DEVICE)   # set ARCH_3D=monai to sample a MONAI checkpoint
     how = load_state_compat(model, CKPT, DEVICE)   # shape error = wrong WIDTH_3D/BLOCKS_3D
     print(f"loaded {CKPT} ({how})")
     model.eval()

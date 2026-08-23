@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader
 from diffusers.training_utils import EMAModel
 
 from src.dataset3d import VolumeDataset
-from src.model3d import build_model_3d
+from src.model3d import build_3d
 
 DEVICE, T = "cuda", 1000
 LR       = float(os.environ.get("LR_3D", "1e-4"))   # drop to ~2e-5 when resuming a plateaued run
@@ -32,8 +32,10 @@ RESUME   = os.environ.get("RESUME_3D", "")
 # can destroy structure too early for volumetric data. IF YOU TRAIN WITH COSINE YOU MUST SAMPLE
 # WITH COSINE -- sample_3d.py reads the same variable. Default stays linear.
 SCHED    = os.environ.get("SCHED_3D", "linear")
+ARCH     = os.environ.get("ARCH_3D", "custom")       # custom = our UNet3D | monai = MONAI's
+SPLIT    = os.environ.get("SPLIT_3D", "train")       # "train+val" folds val in for more data
 CKPT_DIR = "models"
-TAG      = "diffusion3d"
+TAG      = os.environ.get("TAG_3D", "diffusion3d")   # keeps parallel experiments apart
 
 def main():
     os.makedirs(CKPT_DIR, exist_ok=True)
@@ -49,15 +51,16 @@ def main():
         alpha_bars = torch.cumprod(1.0 - betas, dim=0)
     print(f"noise schedule: {SCHED}", flush=True)
 
-    loader = DataLoader(VolumeDataset("train"), batch_size=BATCH, shuffle=True, num_workers=4)
-    print(f"{len(loader.dataset)} training volumes | batch {BATCH} | {len(loader)} steps/epoch", flush=True)
+    loader = DataLoader(VolumeDataset(SPLIT), batch_size=BATCH, shuffle=True, num_workers=4)
+    print(f"{len(loader.dataset)} training volumes (split={SPLIT}) | batch {BATCH} | "
+          f"{len(loader)} steps/epoch", flush=True)
 
-    model  = build_model_3d().to(DEVICE)      # width comes from WIDTH_3D (default 64)
+    model  = build_3d().to(DEVICE)            # ARCH_3D selects custom vs monai
     if RESUME:
         model.load_state_dict(torch.load(RESUME, map_location=DEVICE))   # shape error = wrong WIDTH_3D
         print(f"RESUMED weights from {RESUME}", flush=True)
     nparam = sum(p.numel() for p in model.parameters()) / 1e6
-    print(f"model: {nparam:.1f}M params (width {os.environ.get('WIDTH_3D','64')}) | lr {LR:g} | "
+    print(f"model: {ARCH} | {nparam:.1f}M params (width {os.environ.get('WIDTH_3D','64')}) | lr {LR:g} | "
           f"{EPOCHS} epochs -> {EPOCHS*len(loader)} total gradient steps", flush=True)
 
     opt    = torch.optim.AdamW(model.parameters(), lr=LR)

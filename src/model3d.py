@@ -137,6 +137,34 @@ class UNet3D(nn.Module):
         d = self.u0(torch.cat([self.up(d), s0], 1), temb)   # (B, 32, 64,64,64)
         return self.out_conv(F.silu(self.out_norm(d)))      # (B,  1, 64,64,64)
 
+def build_model_monai():
+    """MONAI's DiffusionModelUNet (spatial_dims=3) — a PROVEN 3D diffusion backbone.
+
+    Why this exists: every other piece of the 3D pipeline (schedule, epsilon-MSE objective, DDIM
+    sampler, conditioning layout, EMA) is shared with the 2D pipeline that demonstrably works.
+    The ONLY unvalidated component is the hand-written UNet3D above. Swapping in a library
+    implementation that many medical-imaging papers rely on tests that component directly instead
+    of debugging it. Same interface: forward(x, timesteps) -> predicted noise.
+
+    Needs: pip install monai
+    """
+    from monai.networks.nets import DiffusionModelUNet      # imported lazily so monai stays optional
+    w  = int(os.environ.get("WIDTH_3D", "64"))
+    ch = (w, w * 2, w * 4, w * 8)                           # 64 -> 32 -> 16 -> 8, same ladder as ours
+    kw = dict(spatial_dims=3, in_channels=9, out_channels=1,
+              attention_levels=(False, False, False, True), # attention only at 8^3, same constraint
+              num_res_blocks=int(os.environ.get("BLOCKS_3D", "2")),
+              num_head_channels=w)
+    try:                                                    # arg was renamed between MONAI versions
+        return DiffusionModelUNet(num_channels=ch, **kw)
+    except TypeError:
+        return DiffusionModelUNet(channels=ch, **kw)
+
+def build_3d(arch=None):
+    """Pick the architecture: ARCH_3D=custom (our UNet3D) or ARCH_3D=monai."""
+    a = (arch or os.environ.get("ARCH_3D", "custom")).lower()
+    return build_model_monai() if a == "monai" else build_model_3d()
+
 def load_state_compat(model, path, device):
     """Load a checkpoint, tolerating ones saved BEFORE the ResStack wrapper existed.
 
@@ -179,10 +207,10 @@ def build_model_3d(width=None):
 if __name__ == "__main__":
     # shape + memory self-test: run `python src/model3d.py` before launching any training
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    m = build_model_3d().to(dev)
+    m = build_3d().to(dev)
     w = int(os.environ.get("WIDTH_3D", "64"))
     b = int(os.environ.get("BLOCKS_3D", "2"))
-    print(f"device {dev} | width {w} -> channels {(w, w*2, w*4, w*8)} | {b} blocks/level | "
+    print(f"arch {os.environ.get('ARCH_3D','custom')} | device {dev} | width {w} -> channels {(w, w*2, w*4, w*8)} | {b} blocks/level | "
           f"params {sum(p.numel() for p in m.parameters())/1e6:.1f}M")
     for B in (1, 2, 4, 8):
         try:

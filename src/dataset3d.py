@@ -16,14 +16,19 @@ class VolumeDataset(Dataset):
     """Serves one preprocessed volume: target FLAIR + conditioning (T1 + mask + 6 atlas)."""
 
     def __init__(self, split, root="data/processed/volumes", augment=None):
-        self.files = sorted(glob.glob(os.path.join(root, split, "*.npy")))
+        # `split` may name SEVERAL splits joined by "+", e.g. "train+val". That is how the
+        # more-data experiment gets a bigger training set without new patients: it folds the
+        # validation volumes in (875 -> ~1062) while leaving TEST untouched as a clean hold-out.
+        self.files = []
+        for sp in split.split("+"):
+            self.files += sorted(glob.glob(os.path.join(root, sp, "*.npy")))
         if not self.files:
             raise FileNotFoundError(f"No .npy volumes in {root}/{split} — run 05_preprocess_3d.py first")
         # AUG_3D=1 turns on augmentation. It matters here far more than it did in 2D: there are
         # only ~875 training volumes (vs 164k slices), so without it the model sees the same few
         # hundred examples hundreds of times over and has very little to generalise from.
         self.augment = (os.environ.get("AUG_3D", "1") == "1") if augment is None else augment
-        self.augment = self.augment and split == "train"     # never augment val/test
+        self.augment = self.augment and "train" in split     # never augment a pure val/test set
 
     def __len__(self):
         return len(self.files)
