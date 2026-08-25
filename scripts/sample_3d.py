@@ -47,10 +47,16 @@ def main():
     # MUST match the schedule used in training, or sampling walks a different trajectory
     # than the model was trained for and the output is garbage.
     sched_name = os.environ.get("SCHED_3D", "linear")
+    zero_snr   = os.environ.get("ZERO_SNR", "0") == "1"
     kw = {"beta_schedule": "squaredcos_cap_v2"} if sched_name == "cosine" else {}
+    if zero_snr:
+        # Mirror the training schedule. "trailing" spacing makes the FIRST sampled step be t=T,
+        # which is required once alpha_bar_T = 0 -- otherwise the loop starts at a timestep the
+        # model was never trained to see as pure noise.
+        kw.update(rescale_betas_zero_snr=True, timestep_spacing="trailing")
     sched = DDIMScheduler(num_train_timesteps=1000, clip_sample=True, **kw)
     sched.set_timesteps(steps)
-    print(f"noise schedule: {sched_name}")
+    print(f"noise schedule: {sched_name} | zero-terminal-SNR: {zero_snr}")
 
     # pick a held-out volume that actually contains a tumour, for a more interesting figure
     ds = VolumeDataset("val")

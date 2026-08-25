@@ -34,6 +34,15 @@ RESUME   = os.environ.get("RESUME_3D", "")
 SCHED    = os.environ.get("SCHED_3D", "linear")
 ARCH     = os.environ.get("ARCH_3D", "custom")       # custom = our UNet3D | monai = MONAI's
 SPLIT    = os.environ.get("SPLIT_3D", "train")       # "train+val" folds val in for more data
+# ZERO_SNR=1 rescales the schedule so alpha_bar at t=T is EXACTLY 0.
+# Why: with the standard linear schedule sqrt(alpha_bar_T) ~= 0.0066, so even the noisiest
+# training input still carries 0.66% of the real image. In 2D that leak is negligible, but a
+# 64^3 volume has 262k highly redundant voxels, so the hint is recoverable by averaging -- and
+# the model learns to LEAN on it for global brightness. At sampling we start from pure noise
+# (zero signal), the hint is absent, and the model falls back to the mean: output that cannot
+# reach black or white. That is exactly the [0.22, 1.00] floor we measured across THREE
+# different architectures and data sizes. Must be matched at sampling time.
+ZERO_SNR = os.environ.get("ZERO_SNR", "0") == "1"
 CKPT_DIR = "models"
 TAG      = os.environ.get("TAG_3D", "diffusion3d")   # keeps parallel experiments apart
 
@@ -49,7 +58,14 @@ def main():
     else:                                        # identical noise schedule to the 2D model
         betas      = torch.linspace(1e-4, 0.02, T, device=DEVICE)
         alpha_bars = torch.cumprod(1.0 - betas, dim=0)
-    print(f"noise schedule: {SCHED}", flush=True)
+    if ZERO_SNR:
+        # Shift-and-scale sqrt(alpha_bar) so the LAST value is 0 while the FIRST is unchanged.
+        sab   = alpha_bars.sqrt()
+        sab0, sabT = sab[0].clone(), sab[-1].clone()
+        sab   = (sab - sabT) * (sab0 / (sab0 - sabT))
+        alpha_bars = (sab ** 2).clamp(min=0.0)
+    print(f"noise schedule: {SCHED} | zero-terminal-SNR: {ZERO_SNR} | "
+          f"sqrt(alpha_bar) at t=T = {alpha_bars[-1].sqrt():.6f}", flush=True)
 
     loader = DataLoader(VolumeDataset(SPLIT), batch_size=BATCH, shuffle=True, num_workers=4)
     print(f"{len(loader.dataset)} training volumes (split={SPLIT}) | batch {BATCH} | "
