@@ -47,6 +47,13 @@ DEVICE   = "cuda" if torch.cuda.is_available() else "cpu"
 STEPS    = int(os.environ.get("AUG_STEPS", "200"))
 GUIDANCE = float(os.environ.get("GUIDANCE", "3.0"))
 CKPT     = os.environ.get("TEXT_CKPT", "models/text_place_ema.pt")
+# MASK_MODE=use   -> the synthetic mask is fed as conditioning (mask drives placement)
+# MASK_MODE=blank -> the mask channel is ZEROED, so only the caption + atlas can place the
+#   tumour. The synthetic mask is still built and still captions the prompt, but it becomes
+#   GROUND TRUTH rather than input: measuring lesion contrast inside it then tests whether TEXT
+#   put the pathology where the caption said. This only works with a mask-dropout checkpoint
+#   (text_place / text_rich), because a mask-always model never learned to cope without one.
+MASK_MODE = os.environ.get("MASK_MODE", "use")
 CLIP_ID  = "openai/clip-vit-base-patch32"
 OUT_DIR  = "outputs/augment_text"
 
@@ -67,6 +74,9 @@ def main():
     n    = int(sys.argv[2]) if len(sys.argv) > 2 else 1
     li   = LOBES.index(lobe)                      # ValueError = lobe name typo
     print(f"device {DEVICE} | {STEPS} DDIM steps | guidance {GUIDANCE} | checkpoint {CKPT}")
+    print(f"mask mode: {MASK_MODE}" +
+          ("  (mask conditions the model)" if MASK_MODE == "use"
+           else "  (mask BLANKED -> text+atlas must place the tumour; mask is ground truth)"))
 
     model = build_text_model().to(DEVICE)
     model.load_state_dict(torch.load(CKPT, map_location=DEVICE))
@@ -108,6 +118,8 @@ def main():
         cond_stack = stack.copy()
         cond_stack[2] = m
         cond = torch.from_numpy(cond_stack[1:9]).unsqueeze(0).to(DEVICE)   # (1,8,256,256)
+        if MASK_MODE == "blank":
+            cond[:, 1:2] = 0.0        # channel 1 = mask; text + atlas must now do the placing
 
         enc_c = encode(caption)
         x = torch.randn(1, 1, 256, 256, device=DEVICE)
@@ -126,13 +138,15 @@ def main():
         inside  = flair[m > 0]
         outside = flair[(m == 0) & brain]
         contrast = float(inside.mean() - outside.mean()) if inside.size and outside.size else float("nan")
-        print(f"    lesion contrast (inside - outside) = {contrast:+.3f}  "
-              f"{'lesion rendered' if contrast > 0.02 else 'WEAK/absent'}")
+        verdict = ("lesion rendered" if contrast > 0.02 else "WEAK/absent")
+        if MASK_MODE == "blank":
+            verdict += "  <- placed by TEXT alone" if contrast > 0.02 else "  <- text did not place it"
+        print(f"    lesion contrast (inside - outside) = {contrast:+.3f}  {verdict}")
 
         base = f"aug_{lobe}_{stamp}_{i:02d}"
         np.save(os.path.join(OUT_DIR, base + ".npy"), np.stack([flair, m]))   # (2,256,256)
         rows.append([base + ".npy", lobe, fields["side"], fields["components"],
-                     f"{contrast:.4f}", caption])
+                     MASK_MODE, f"{contrast:.4f}", caption])
         panels.append((stack[1], m, flair, caption, contrast))
 
     if not rows:
@@ -143,7 +157,8 @@ def main():
     with open(csv_path, "a", newline="") as f:
         w = csv.writer(f)
         if new:
-            w.writerow(["file", "lobe", "side", "components", "lesion_contrast", "caption"])
+            w.writerow(["file", "lobe", "side", "components", "mask_mode",
+                        "lesion_contrast", "caption"])
         w.writerows(rows)
 
     fig, ax = plt.subplots(len(panels), 3, figsize=(12, 4 * len(panels)))
@@ -158,7 +173,9 @@ def main():
         for a in ax[r]:
             a.axis("off")
         ax[r, 0].set_xlabel(cap, fontsize=7)
-    fig.suptitle(f"text + atlas-guided tumour augmentation — '{lobe}' lobe", fontsize=12)
+    fig.suptitle(f"text + atlas-guided tumour augmentation — '{lobe}' lobe "
+                 f"(mask {'used as conditioning' if MASK_MODE == 'use' else 'BLANKED: text placed it'})",
+                 fontsize=12)
     out = os.path.join(OUT_DIR, f"aug_{lobe}_{stamp}.png")
     plt.tight_layout(); plt.savefig(out, dpi=110)
     print(f"\nsaved {len(rows)} labelled triples -> {OUT_DIR}")

@@ -43,7 +43,7 @@ MASK_DROP = 0.50          # blank ONLY the tumour-mask channel 50% of the time
 MASK_CH   = 1             # cond channel order is [T1, mask, atlas*6] -> the mask is index 1
 CLIP_ID   = "openai/clip-vit-base-patch32"
 CKPT_DIR  = "models"
-TAG       = "text_place"
+TAG       = os.environ.get("TAG_TEXT", "text_place")   # keeps parallel runs apart
 
 def main():
     os.makedirs(CKPT_DIR, exist_ok=True)
@@ -51,6 +51,7 @@ def main():
     betas      = torch.linspace(1e-4, 0.02, T, device=DEVICE)
     alpha_bars = torch.cumprod(1.0 - betas, dim=0)
 
+    print(f"captions: {os.environ.get('CAPTIONS_CSV','captions.csv')} | tag: {TAG}", flush=True)
     loader = DataLoader(SliceDataset("train", return_caption=True),
                         batch_size=BATCH, shuffle=True, num_workers=4)
 

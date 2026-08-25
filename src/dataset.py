@@ -20,7 +20,10 @@ class SliceDataset(Dataset):
         self.captions = {}
         if return_caption:
             # load captions.csv ONCE into a {filename -> caption} lookup table
-            cap_path = os.path.join(root, "captions.csv")
+            # CAPTIONS_CSV picks which caption set to train on: captions.csv (v1: lobe+side)
+            # or captions_v2.csv (v2: adds size, slice level and dominant component). Swapping
+            # the file is the whole experiment -- no other code changes.
+            cap_path = os.path.join(root, os.environ.get("CAPTIONS_CSV", "captions.csv"))
             with open(cap_path, newline="") as f:
                 for row in csv.DictReader(f):
                     self.captions[row["file"]] = row["caption"]
