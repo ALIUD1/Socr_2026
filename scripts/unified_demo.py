@@ -111,8 +111,8 @@ def main():
     comp = {"necrotic": int((np.rint(mask) == 1).sum()), "edema": int((np.rint(mask) == 2).sum()),
             "enhancing": int((np.rint(mask) == 3).sum())}
     print(f"mask composition (voxels): {comp}")
-    print(f"REAL lesion contrast = {real_lc:+.4f}   <- the target every regime should match
-")
+    print(f"REAL lesion contrast = {real_lc:+.4f}   <- the target every regime should match")
+    print()
     print(f"{'regime':<14}{'PSNR':>8}{'SSIM':>8}{'lesion':>10}{'vs REAL':>10}")
     outs, stats = [], []
     for name, um, ut in modes:
