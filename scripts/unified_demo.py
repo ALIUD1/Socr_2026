@@ -103,7 +103,17 @@ def main():
              ("text only",   False, True),
              ("neither",     False, False)]
 
-    print(f"{'regime':<14}{'PSNR':>8}{'SSIM':>8}{'lesion contrast':>18}")
+    # CONTROL: the same contrast measured on the REAL image. Without it the generated number
+    # is uninterpretable -- necrotic core is HYPOintense in FLAIR, so a negative contrast can be
+    # entirely correct. What matters is whether the model MATCHES the real image's contrast.
+    r_in, r_out = real[mask > 0], real[(mask == 0) & brain]
+    real_lc = float(r_in.mean() - r_out.mean()) if r_in.size and r_out.size else float("nan")
+    comp = {"necrotic": int((np.rint(mask) == 1).sum()), "edema": int((np.rint(mask) == 2).sum()),
+            "enhancing": int((np.rint(mask) == 3).sum())}
+    print(f"mask composition (voxels): {comp}")
+    print(f"REAL lesion contrast = {real_lc:+.4f}   <- the target every regime should match
+")
+    print(f"{'regime':<14}{'PSNR':>8}{'SSIM':>8}{'lesion':>10}{'vs REAL':>10}")
     outs, stats = [], []
     for name, um, ut in modes:
         g = generate(um, ut)
@@ -115,14 +125,19 @@ def main():
         inside, outside = g[mask > 0], g[(mask == 0) & brain]
         lc = float(inside.mean() - outside.mean()) if inside.size and outside.size else float("nan")
         outs.append(g); stats.append((p, s, lc))
-        print(f"{name:<14}{p:8.2f}{s:8.3f}{lc:+18.4f}")
+        print(f"{name:<14}{p:8.2f}{s:8.3f}{lc:+10.4f}{lc - real_lc:+10.4f}")
 
     print("\nHOW TO READ THIS")
     print("  All four rows come from ONE checkpoint -- the model covers every regime because it")
     print("  was trained with both text dropout and mask dropout.")
     print("  'mask only' should look like the spatial-only paper model (that is the same task).")
-    print("  'text only' having positive lesion contrast means the CAPTION placed the pathology")
-    print("  with no mask at all, which is the capability a spatial-only model cannot have.")
+    print("  'text only' reproducing the REAL lesion contrast means the CAPTION placed the")
+    print("  pathology with no mask at all -- a capability a spatial-only model cannot have.")
+    print("  Judge lesion contrast by the 'vs REAL' column, NOT its raw sign: necrotic core is")
+    print("  hypointense in FLAIR, so a negative contrast is correct when necrosis dominates.")
+    print("  If 'mask + text' and 'text only' are IDENTICAL, the mask channel is being ignored")
+    print("  -- the caption already encodes the tumour location, so mask dropout can teach the")
+    print("  model to rely on text alone. Lower MASK_DROP if the mask must stay load-bearing.")
 
     fig, ax = plt.subplots(1, 5, figsize=(20, 4.4))
     ax[0].imshow(real.T, cmap="gray", origin="lower", vmin=0, vmax=1)
