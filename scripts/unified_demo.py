@@ -139,15 +139,42 @@ def main():
     print("  -- the caption already encodes the tumour location, so mask dropout can teach the")
     print("  model to rely on text alone. Lower MASK_DROP if the mask must stay load-bearing.")
 
-    fig, ax = plt.subplots(1, 5, figsize=(20, 4.4))
-    ax[0].imshow(real.T, cmap="gray", origin="lower", vmin=0, vmax=1)
-    ax[0].set_title("REAL", fontsize=10); ax[0].axis("off")
+    # ---- crop coordinates centred on the tumour mask, with margin, clamped to the image ----
+    ys, xs = np.nonzero(mask > 0)
+    cy, cx = int(ys.mean()), int(xs.mean())
+    half = max(int(max(ys.max()-ys.min(), xs.max()-xs.min()) * 1.5) // 2 + 10, 20)
+    y0, y1 = max(cy-half, 0), min(cy+half, real.shape[0])
+    x0, x1 = max(cx-half, 0), min(cx+half, real.shape[1])
+
+    def crop(img):
+        return img[y0:y1, x0:x1]
+
+    fig, ax = plt.subplots(2, 5, figsize=(20, 9))
+    # top row: full slice with a red box marking the crop region
+    ax[0, 0].imshow(real.T, cmap="gray", origin="lower", vmin=0, vmax=1)
+    ax[0, 0].set_title("REAL", fontsize=10); ax[0, 0].axis("off")
+    for a in [ax[0, 0]] + [ax[0, k+1] for k in range(4)]:
+        rect = plt.Rectangle((y0, x0), y1-y0, x1-x0, edgecolor="red", facecolor="none", lw=1.5)
+        a.add_patch(rect)
     for k, ((name, _, _), g) in enumerate(zip(modes, outs)):
         p, s, lc = stats[k]
-        ax[k+1].imshow(g.T, cmap="gray", origin="lower", vmin=0, vmax=1)
-        ax[k+1].set_title(f"{name}\nPSNR {p:.1f}  SSIM {s:.2f}\nlesion {lc:+.3f}", fontsize=9)
-        ax[k+1].axis("off")
-    fig.suptitle(f"ONE model, four conditioning regimes — {os.path.basename(CKPT)}", fontsize=12)
+        ax[0, k+1].imshow(g.T, cmap="gray", origin="lower", vmin=0, vmax=1)
+        ax[0, k+1].set_title(f"{name}\nPSNR {p:.1f}  SSIM {s:.2f}\nlesion {lc:+.3f}", fontsize=9)
+        ax[0, k+1].axis("off")
+
+    # bottom row: ZOOMED crop of the red box, with the mask outline overlaid, so the tumour
+    # region itself -- not the whole 256x256 slice -- is what you're actually comparing.
+    ax[1, 0].imshow(crop(real).T, cmap="gray", origin="lower", vmin=0, vmax=1)
+    ax[1, 0].contour(crop(mask).T, levels=[0.5], colors="lime", linewidths=1.5)
+    ax[1, 0].set_title("REAL (zoomed, mask outline)", fontsize=9); ax[1, 0].axis("off")
+    for k, g in enumerate(outs):
+        ax[1, k+1].imshow(crop(g).T, cmap="gray", origin="lower", vmin=0, vmax=1)
+        ax[1, k+1].contour(crop(mask).T, levels=[0.5], colors="lime", linewidths=1.5)
+        ax[1, k+1].set_title(f"{modes[k][0]} (zoomed)", fontsize=9); ax[1, k+1].axis("off")
+
+    fig.suptitle(f"ONE model, four conditioning regimes — {os.path.basename(CKPT)}\n"
+                 f"top: full slice (red box = crop region)   bottom: zoomed on the tumour "
+                 f"(green = mask boundary)", fontsize=11)
     os.makedirs("outputs/unified", exist_ok=True)
     out = f"outputs/unified/unified_{datetime.now():%Y%m%d_%H%M%S}.png"
     plt.tight_layout(); plt.savefig(out, dpi=110)
