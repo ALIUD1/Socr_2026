@@ -63,7 +63,13 @@ def main():
         sab   = alpha_bars.sqrt()
         sab0, sabT = sab[0].clone(), sab[-1].clone()
         sab   = (sab - sabT) * (sab0 / (sab0 - sabT))
-        alpha_bars = (sab ** 2).clamp(min=0.0)
+        # Clamp to a TINY value, not exactly 0. With epsilon-prediction, DDIM recovers x0 as
+        #   (x_t - sqrt(1-abar)*eps) / sqrt(abar)
+        # so abar_T = 0 exactly is a division by zero -> NaN through the whole sampling loop.
+        # (Zero terminal SNR is properly paired with v-prediction, which stays defined there.)
+        # 1e-8 gives sqrt(abar_T) = 1e-4 vs the standard schedule's 6.6e-3 -- a ~66x smaller
+        # leak, which is the point of the exercise, while keeping the arithmetic finite.
+        alpha_bars = (sab ** 2).clamp(min=1e-8)
     print(f"noise schedule: {SCHED} | zero-terminal-SNR: {ZERO_SNR} | "
           f"sqrt(alpha_bar) at t=T = {alpha_bars[-1].sqrt():.6f}", flush=True)
 

@@ -50,10 +50,20 @@ def main():
     zero_snr   = os.environ.get("ZERO_SNR", "0") == "1"
     kw = {"beta_schedule": "squaredcos_cap_v2"} if sched_name == "cosine" else {}
     if zero_snr:
-        # Mirror the training schedule. "trailing" spacing makes the FIRST sampled step be t=T,
-        # which is required once alpha_bar_T = 0 -- otherwise the loop starts at a timestep the
-        # model was never trained to see as pure noise.
-        kw.update(rescale_betas_zero_snr=True, timestep_spacing="trailing")
+        # Rebuild EXACTLY the training schedule and hand it to the scheduler as trained_betas,
+        # rather than using diffusers' rescale flag -- that flag sets alpha_bar_T to exactly 0,
+        # which makes DDIM's x0 = (x_t - sqrt(1-abar)*eps)/sqrt(abar) divide by zero and return
+        # NaN. Deriving betas from our clamped alpha_bars guarantees train and sample match.
+        import math as _m
+        T_ = 1000
+        b  = torch.linspace(1e-4, 0.02, T_)
+        ab = torch.cumprod(1.0 - b, dim=0)
+        sab = ab.sqrt(); sab0, sabT = sab[0].clone(), sab[-1].clone()
+        ab = (((sab - sabT) * (sab0 / (sab0 - sabT))) ** 2).clamp(min=1e-8)
+        alphas = torch.cat([ab[0:1], ab[1:] / ab[:-1]])      # alpha_t = abar_t / abar_{t-1}
+        kw.update(trained_betas=(1.0 - alphas).clamp(0, 0.999).numpy(),
+                  timestep_spacing="trailing")
+        print(f"  rebuilt zero-SNR schedule: sqrt(alpha_bar) at t=T = {ab[-1].sqrt():.6f}")
     sched = DDIMScheduler(num_train_timesteps=1000, clip_sample=True, **kw)
     sched.set_timesteps(steps)
     print(f"noise schedule: {sched_name} | zero-terminal-SNR: {zero_snr}")
