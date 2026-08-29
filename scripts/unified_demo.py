@@ -176,9 +176,22 @@ def main():
                  f"top: full slice (red box = crop region)   bottom: zoomed on the tumour "
                  f"(green = mask boundary)", fontsize=11)
     os.makedirs("outputs/unified", exist_ok=True)
-    out = f"outputs/unified/unified_{datetime.now():%Y%m%d_%H%M%S}.png"
+    stamp = f"{datetime.now():%Y%m%d_%H%M%S}"
+    out = f"outputs/unified/unified_{stamp}.png"
     plt.tight_layout(); plt.savefig(out, dpi=110)
-    print(f"\nsaved {out}")
+
+    # The figure does not show the REAL contrast -- it is printed only. Write the numbers to a
+    # sidecar so a run is not lost when the terminal scrollback is.
+    txt = f"outputs/unified/unified_{stamp}.txt"
+    with open(txt, "w") as f:
+        f.write(f"checkpoint {CKPT} | steps {STEPS} | guidance {guidance} | val slice {i}\n"
+                f"caption: {caption}\n"
+                f"mask composition (voxels): {comp}\n"
+                f"REAL lesion contrast = {real_lc:+.4f}\n\n"
+                f"{'regime':<14}{'PSNR':>8}{'SSIM':>8}{'lesion':>10}{'vs REAL':>10}\n")
+        for (name, _, _), (p, s, lc) in zip(modes, stats):
+            f.write(f"{name:<14}{p:8.2f}{s:8.3f}{lc:+10.4f}{lc - real_lc:+10.4f}\n")
+    print(f"\nsaved {out}\nsaved {txt}")
 
 if __name__ == "__main__":
     main()
